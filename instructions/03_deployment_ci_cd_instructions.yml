@@ -1,0 +1,196 @@
+# instructions/03_deployment_ci_cd_instructions.yml
+name: UniCircle Deployment and CI/CD
+description: >
+  End-to-end CI/CD pipeline for UniCircle covering backend (NestJS + PostgreSQL)
+  and mobile (Expo/EAS). Supports marketplace, alumni verification, revenue features,
+  and monitoring. Target deployment: DigitalOcean droplet or App Platform with
+  Docker and GitHub Actions.
+
+stack:
+  ci: github-actions
+  container: docker
+  hosting: digitalocean
+  mobile_build: expo-eas
+
+tasks:
+
+  - id: backend-docker
+    title: Dockerize backend + PostgreSQL
+    steps:
+      - create_file: backend/Dockerfile
+        content: |
+          FROM node:20-alpine
+          WORKDIR /app
+          COPY package*.json ./
+          RUN npm install --omit=dev
+          COPY . .
+          RUN npm run build
+          EXPOSE 3000
+          CMD ["node", "dist/main.js"]
+      - create_file: docker-compose.yml
+        content: |
+          version: "3.9"
+          services:
+            db:
+              image: postgres:16
+              restart: always
+              environment:
+                POSTGRES_USER: postgres
+                POSTGRES_PASSWORD: postgres
+                POSTGRES_DB: unicircle
+              volumes:
+                - postgres_data:/var/lib/postgresql/data
+              ports:
+                - "5432:5432"
+
+            api:
+              build: ./backend
+              env_file:
+                - ./backend/.env
+              restart: always
+              ports:
+                - "3000:3000"
+              depends_on:
+                - db
+              volumes:
+                - ./uploads:/app/uploads
+              environment:
+                NODE_ENV: production
+                JWT_SECRET: ${JWT_SECRET}
+                SMTP_USER: ${SMTP_USER}
+                SMTP_PASS: ${SMTP_PASS}
+                DATABASE_URL: ${POSTGRES_URL}
+          volumes:
+            postgres_data:
+              driver: local
+
+  - id: github-actions-backend
+    title: Backend CI validation
+    steps:
+      - create_file: .github/workflows/backend-ci.yml
+        content: |
+          name: Backend CI
+          on:
+            push:
+              branches: [ main ]
+              paths: [ "backend/**" ]
+            pull_request:
+              paths: [ "backend/**" ]
+          jobs:
+            test:
+              runs-on: ubuntu-latest
+              steps:
+                - uses: actions/checkout@v4
+                - uses: actions/setup-node@v4
+                  with:
+                    node-version: 20
+                - run: cd backend && npm ci
+                - run: cd backend && npm run build
+                - run: cd backend && npx prisma validate
+                - run: cd backend && npm run test --if-present
+
+  - id: github-actions-docker
+    title: Build + push Docker image
+    steps:
+      - create_file: .github/workflows/backend-docker.yml
+        content: |
+          name: Backend Docker Build
+          on:
+            push:
+              branches: [ main ]
+              paths: [ "backend/**" ]
+          jobs:
+            docker:
+              runs-on: ubuntu-latest
+              steps:
+                - uses: actions/checkout@v4
+                - name: Login to Docker Hub
+                  uses: docker/login-action@v3
+                  with:
+                    username: ${{ secrets.DOCKERHUB_USERNAME }}
+                    password: ${{ secrets.DOCKERHUB_TOKEN }}
+                - name: Build and push
+                  uses: docker/build-push-action@v5
+                  with:
+                    context: ./backend
+                    push: true
+                    tags: ${{ secrets.DOCKERHUB_USERNAME }}/unicircle-api:latest
+
+  - id: deploy-digitalocean
+    title: Deploy to DigitalOcean droplet or App Platform
+    steps:
+      - setup:
+          - uses: digitalocean/action-doctl@v2
+            with:
+              token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      - run: |
+          doctl apps create-deployment <app-id> --wait
+      - include Nginx reverse proxy for HTTPS routing and /api → :3000
+      - optional: attach DigitalOcean Spaces bucket for image uploads
+
+  - id: db-migrations
+    title: Apply Prisma migrations on deploy
+    steps:
+      - run: |
+          cd backend
+          npx prisma migrate deploy
+          npx prisma generate
+      - description: |
+          Ensures all schema changes, including MarketplaceListing,
+          Transaction, and AlumniApproval tables, are in sync.
+
+  - id: mobile-ci
+    title: Expo EAS build for Android & iOS
+    steps:
+      - create_file: .github/workflows/mobile-build.yml
+        content: |
+          name: Mobile Build (EAS)
+          on:
+            workflow_dispatch:
+            push:
+              branches: [ main ]
+              paths: [ "mobile/**" ]
+          jobs:
+            build:
+              runs-on: ubuntu-latest
+              steps:
+                - uses: actions/checkout@v4
+                - uses: actions/setup-node@v4
+                  with:
+                    node-version: 20
+                - name: Install dependencies
+                  run: cd mobile && npm ci
+                - name: Expo login
+                  run: npx expo login -u ${{ secrets.EXPO_USERNAME }} -p ${{ secrets.EXPO_PASSWORD }}
+                - name: Build Android (Production)
+                  run: cd mobile && npx eas build --platform android --profile production --non-interactive
+                - name: Build iOS (Production)
+                  run: cd mobile && npx eas build --platform ios --profile production --non-interactive
+                - name: Version bump
+                  run: cd mobile && npx npm version patch
+
+  - id: monitoring-backup
+    title: Monitoring and automated backups
+    steps:
+      - cron jobs on droplet:
+        - pg_dump > /backups/unicircle_$(date +%F).sql
+        - delete backups older than 7 days
+      - monitor /healthz via UptimeRobot or Healthchecks.io
+      - send Slack/email alerts on failure
+      - optional: push container logs to Grafana Loki or Papertrail
+
+  - id: production-security
+    title: Production hardening
+    steps:
+      - enforce HTTPS with Certbot (Let's Encrypt)
+      - enable HTTP/2 and gzip compression
+      - enable rate limiting (100 req/min/IP)
+      - restrict CORS to mobile/web domains
+      - run npm audit + trivy scan weekly
+      - rotate JWT/SMTP keys every 90 days
+      - store uploaded alumni docs privately (no public URL)
+      - enable daily backup verification and notification
+      - add monitoring for:
+          - alumni approvals per day
+          - new marketplace listings
+          - payment webhook failures

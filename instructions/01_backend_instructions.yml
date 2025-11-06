@@ -1,0 +1,476 @@
+# instructions/01_backend_instructions.yml
+name: UniCircle Backend Build
+description: >
+  Build a production-grade NestJS + PostgreSQL backend for UniCircle — a
+  campus-first social platform that evolves into a full alumni and professional network.
+  Supports email/OTP onboarding, university/domain validation, alumni manual
+  registration with document upload and admin approval, anonymous and cross-university
+  crush, match/chat, Circles, social posts, jobs, moderation, weekly reveal,
+  plus marketplace and monetization hooks.
+stack:
+  runtime: nodejs
+  framework: nestjs
+  language: typescript
+  database: postgresql
+  orm: prisma
+  container: docker
+
+tasks:
+  - id: scaffold-backend
+    title: Create NestJS project
+    steps:
+      - run: npx @nestjs/cli new backend --package-manager npm
+      - run: cd backend && npm install @nestjs/config @nestjs/swagger swagger-ui-express
+      - run: cd backend && npm install @prisma/client prisma --save-dev
+      - run: cd backend && npx prisma init
+      - note: use src/modules/* for features
+
+  - id: configure-env
+    title: Setup environment variables
+    steps:
+      - create_file: .env
+        content: |
+          DATABASE_URL="postgresql://postgres:postgres@localhost:5432/unicircle"
+          JWT_SECRET="replace-with-long-secret"
+          JWT_REFRESH_SECRET="replace-with-refresh-secret"
+          SMTP_HOST="smtp.yourmailserver.com"
+          SMTP_USER="noreply@unicircle.app"
+          SMTP_PASS="replace"
+          APP_TIMEZONE="Asia/Dhaka"
+          ADMIN_EMAIL="admin@unicircle.app"
+          FILE_UPLOAD_PATH="./uploads"
+      - note: add ConfigModule.forRoot({ isGlobal: true })
+
+  - id: mail-config
+    title: Email Transport Configuration (Local Gmail + Production Brevo)
+    steps:
+      - description: >
+          Configure environment-based SMTP for sending verification emails,
+          alumni approval notifications, and password resets.
+          Use Gmail for local development and Brevo for production.
+      - create_file: backend/.env.local
+        content: |
+          DATABASE_URL="postgresql://postgres:postgres@localhost:5432/unicircle"
+          JWT_SECRET="local-secret"
+          JWT_REFRESH_SECRET="local-refresh-secret"
+          SMTP_HOST="smtp.gmail.com"
+          SMTP_PORT=587
+          SMTP_USER="yourgmail@gmail.com"
+          SMTP_PASS="your-google-app-password"
+          SMTP_FROM="UniCircle Dev <yourgmail@gmail.com>"
+          APP_TIMEZONE="Asia/Dhaka"
+          ADMIN_EMAIL="admin@unicircle.app"
+          FILE_UPLOAD_PATH="./uploads"
+      - create_file: backend/.env.prod
+        content: |
+          DATABASE_URL="postgresql://postgres:postgres@db:5432/unicircle"
+          JWT_SECRET="prod-secret"
+          JWT_REFRESH_SECRET="prod-refresh-secret"
+          SMTP_HOST="smtp-relay.brevo.com"
+          SMTP_PORT=587
+          SMTP_USER="your-brevo-username"
+          SMTP_PASS="your-brevo-api-key"
+          SMTP_FROM="UniCircle Support <noreply@unicircle.pro>"
+          APP_TIMEZONE="Asia/Dhaka"
+          ADMIN_EMAIL="admin@unicircle.app"
+          FILE_UPLOAD_PATH="/app/uploads"
+      - note: >
+          - Gmail requires an App Password (not your login password).
+          - Brevo (Sendinblue) allows 300 free transactional emails/day.
+          - Keep both files out of version control (.gitignore).
+      - optional: >
+          Implement fallback SMTP logic in MailService to retry with a
+          secondary provider (e.g., Postmark or Mailgun) on delivery failure.
+  
+  - id: database-schema
+    title: Define Prisma schema with alumni onboarding, social, jobs, groups, and profileMode
+    steps:
+      - edit_file: prisma/schema.prisma
+        content: |
+          datasource db {
+            provider = "postgresql"
+            url      = env("DATABASE_URL")
+          }
+
+          generator client {
+            provider = "prisma-client-js"
+          }
+
+          model University {
+            id        String  @id @default(uuid())
+            name      String
+            domain    String? @unique
+            active    Boolean @default(true)
+            allowCrossCampus Boolean @default(false)
+            users     User[]
+            createdAt DateTime @default(now())
+          }
+
+          model User {
+            id                String   @id @default(uuid())
+            name              String?
+            email             String   @unique
+            passwordHash      String?
+            universityId      String?
+            university        University? @relation(fields: [universityId], references: [id])
+            department        String?
+            programme         String?
+            semester          String?
+            gender            String?
+            avatarUrl         String?
+            registrationSource String  @default("student_email") // student_email | alumni_manual
+            verificationStatus String  @default("pending")        // pending | approved | rejected
+            documents         Json?    // uploaded alumni proofs
+            isVerified        Boolean  @default(false)
+            isBlocked         Boolean  @default(false)
+            allowCrossCampus  Boolean  @default(false)
+            profileMode       String   @default("student") // student | alumni | professional
+            currentStatus     String?
+            headline          String?
+            experience        Json?
+            skills            Json?
+            createdAt         DateTime @default(now())
+            crushesSent       Crush[]  @relation("CrushSender")
+            crushesRecv       Crush[]  @relation("CrushReceiver")
+            matchesA          Match[]  @relation("MatchA")
+            matchesB          Match[]  @relation("MatchB")
+            reportsFiled      Report[] @relation("ReportBy")
+            reportsOn         Report[] @relation("ReportOn")
+            groupMembers      GroupMember[]
+            posts             Post[]
+            jobApplications   JobApplication[]
+            marketplaceListings MarketplaceListing[]
+          }
+
+          model AlumniApproval {
+            id          String   @id @default(uuid())
+            userId      String
+            user        User     @relation(fields: [userId], references: [id])
+            documents   Json?
+            status      String   @default("pending") // pending | approved | rejected
+            reviewedBy  String?
+            reviewedAt  DateTime?
+            createdAt   DateTime @default(now())
+          }
+
+          model EmailVerification {
+            id        String   @id @default(uuid())
+            userId    String
+            user      User     @relation(fields: [userId], references: [id])
+            code      String
+            expiresAt DateTime
+            consumed  Boolean  @default(false)
+            createdAt DateTime @default(now())
+          }
+
+          model Crush {
+            id          String   @id @default(uuid())
+            fromUserId  String
+            toUserId    String
+            fromUser    User     @relation("CrushSender", fields: [fromUserId], references: [id])
+            toUser      User     @relation("CrushReceiver", fields: [toUserId], references: [id])
+            status      String   @default("pending") // pending | matched | hidden
+            createdAt   DateTime @default(now())
+          }
+
+          model Match {
+            id        String   @id @default(uuid())
+            userAId   String
+            userBId   String
+            userA     User     @relation("MatchA", fields: [userAId], references: [id])
+            userB     User     @relation("MatchB", fields: [userBId], references: [id])
+            createdAt DateTime @default(now())
+            messages  ChatMessage[]
+          }
+
+          model ChatMessage {
+            id        String   @id @default(uuid())
+            matchId   String
+            match     Match    @relation(fields: [matchId], references: [id])
+            senderId  String
+            sender    User     @relation(fields: [senderId], references: [id])
+            content   String
+            createdAt DateTime @default(now())
+          }
+
+          model Group {
+            id            String   @id @default(uuid())
+            title         String
+            description   String?
+            universityId  String?
+            programme     String?
+            visibility    String   @default("university") // university | programme | public
+            createdById   String
+            createdBy     User     @relation(fields: [createdById], references: [id])
+            createdAt     DateTime @default(now())
+            members       GroupMember[]
+            messages      GroupMessage[]
+          }
+
+          model GroupMember {
+            id        String   @id @default(uuid())
+            groupId   String
+            group     Group    @relation(fields: [groupId], references: [id])
+            userId    String
+            user      User     @relation(fields: [userId], references: [id])
+            role      String   @default("member")
+            joinedAt  DateTime @default(now())
+          }
+
+          model GroupMessage {
+            id        String   @id @default(uuid())
+            groupId   String
+            group     Group    @relation(fields: [groupId], references: [id])
+            senderId  String
+            sender    User     @relation(fields: [senderId], references: [id])
+            content   String
+            createdAt DateTime @default(now())
+          }
+
+          model Post {
+            id          String   @id @default(uuid())
+            authorId    String
+            author      User     @relation(fields: [authorId], references: [id])
+            content     String
+            mediaUrl    String?
+            visibility  String   @default("university")
+            createdAt   DateTime @default(now())
+            comments    PostComment[]
+            likes       PostLike[]
+          }
+
+          model PostComment {
+            id        String   @id @default(uuid())
+            postId    String
+            post      Post     @relation(fields: [postId], references: [id])
+            authorId  String
+            author    User     @relation(fields: [authorId], references: [id])
+            content   String
+            createdAt DateTime @default(now())
+          }
+
+          model PostLike {
+            id        String   @id @default(uuid())
+            postId    String
+            post      Post     @relation(fields: [postId], references: [id])
+            userId    String
+            user      User     @relation(fields: [userId], references: [id])
+            createdAt DateTime @default(now())
+          }
+
+          model Job {
+            id              String   @id @default(uuid())
+            title           String
+            description     String
+            employmentType  String?
+            location        String?
+            ownerUserId     String
+            ownerUser       User     @relation(fields: [ownerUserId], references: [id])
+            targetUniversityId String?
+            targetProgramme String?
+            isActive        Boolean  @default(true)
+            createdAt       DateTime @default(now())
+            applications    JobApplication[]
+          }
+
+          model JobApplication {
+            id          String   @id @default(uuid())
+            jobId       String
+            job         Job      @relation(fields: [jobId], references: [id])
+            applicantId String
+            applicant   User     @relation(fields: [applicantId], references: [id])
+            coverLetter String?
+            status      String   @default("submitted")
+            createdAt   DateTime @default(now())
+          }
+
+          model MarketplaceListing {
+            id           String   @id @default(uuid())
+            type         String   // rent | sale
+            category     String   // accommodation | electronics | books | furniture | other
+            title        String
+            description  String
+            price        Float?
+            location     String?
+            universityId String?
+            ownerId      String
+            owner        User     @relation(fields: [ownerId], references: [id])
+            images       Json?
+            contactInfo  String?
+            isActive     Boolean  @default(true)
+            isFeatured   Boolean  @default(false)
+            createdAt    DateTime @default(now())
+          }
+
+          model Transaction {
+            id        String   @id @default(uuid())
+            userId    String
+            user      User     @relation(fields: [userId], references: [id])
+            context   String   // marketplace | job | premium
+            reference String
+            amount    Float
+            status    String   @default("pending") // pending | paid | failed
+            createdAt DateTime @default(now())
+          }
+
+          model Report {
+            id             String   @id @default(uuid())
+            reportedById   String
+            reportedBy     User     @relation("ReportBy", fields: [reportedById], references: [id])
+            reportedUserId String
+            reportedUser   User     @relation("ReportOn", fields: [reportedUserId], references: [id])
+            reason         String
+            contextType    String?
+            contextId      String?
+            createdAt      DateTime @default(now())
+          }
+
+          model AuditLog {
+            id          String   @id @default(uuid())
+            actorId     String?
+            action      String
+            entityType  String?
+            entityId    String?
+            createdAt   DateTime @default(now())
+          }
+      - run: cd backend && npx prisma migrate dev --name init-schema
+
+  - id: auth-module
+    title: Auth with domain validation, OTP, and alumni manual registration
+    steps:
+      - create modules: AuthModule, UsersModule, UniversityModule
+      - implement:
+          - POST /auth/request-code  (for student_flow)
+          - POST /auth/verify-code   (for student_flow)
+          - POST /auth/alumni-register (for alumni_flow)
+              - accept name, personalEmail, universityId, documents[]
+              - store user with verificationStatus=pending
+              - create AlumniApproval record
+          - GET /admin/alumni-requests
+          - POST /admin/alumni-requests/:id/approve
+              - set user.isVerified=true, verificationStatus=approved
+          - POST /admin/alumni-requests/:id/reject
+      - issue JWT (access + refresh)
+      - block unverified/pending users from crush, groups, and posts
+      - send notifications on alumni approval
+
+  - id: profile-transition
+    title: Student → Alumni → Professional profile mode
+    steps:
+      - endpoint: PUT /me/profile-mode
+      - if profileMode=alumni and user.registrationSource='alumni_manual':
+          - set verificationStatus=pending
+          - create AlumniApproval
+      - if profileMode=professional:
+          - update without admin approval
+      - log change in AuditLog
+
+  - id: crush-and-match
+    title: Anonymous + cross university crush
+    steps:
+      - POST /crush
+        - body: { toUserId: string }
+        - if same university → allow
+        - else → check both user.allowCrossCampus and both universities.allowCrossCampus
+      - reject if either user.verificationStatus != approved
+      - on reciprocal crush → create Match
+      - GET /crush/mine, GET /match/mine
+      - add per-day limit per user
+
+  - id: chat-module
+    title: 1-to-1 chat for matches
+    steps:
+      - GET /chat/:matchId
+      - POST /chat/:matchId
+      - validate participant
+      - scheduled job to delete older than 7 days
+
+  - id: groups-module
+    title: Circles (programme, interest, alumni)
+    steps:
+      - POST /groups
+      - GET /groups
+      - POST /groups/:id/join
+      - GET /groups/:id/messages
+      - POST /groups/:id/messages
+      - alumni can join only after approval
+      - ensure visibility (university/programme/public)
+
+  - id: social-module
+    title: Social feed (posts, comments, likes)
+    steps:
+      - POST /posts
+      - GET /posts
+      - POST /posts/:id/comment
+      - POST /posts/:id/like
+      - restrict posting for pending alumni
+      - moderator endpoints to hide posts
+
+  - id: jobs-module
+    title: Jobs and applications
+    steps:
+      - POST /jobs (allowed: admin, professional, verified alumni)
+      - GET /jobs?programme=...
+      - POST /jobs/:id/apply
+      - GET /jobs/applications/mine
+
+  - id: marketplace-module
+    title: Marketplace for accommodation and used items
+    steps:
+      - create module MarketplaceModule
+      - endpoints:
+          - POST /marketplace
+          - GET /marketplace
+          - GET /marketplace/:id
+          - PUT /marketplace/:id
+          - DELETE /marketplace/:id
+          - POST /marketplace/:id/feature  # paid boost
+      - only verified users can post
+      - reported listings go to moderators
+      - auto-expire listings after 60 days (cron)
+
+  - id: payments-and-revenue
+    title: Monetization hooks
+    steps:
+      - create module PaymentsModule
+      - endpoints:
+          - POST /payments/create
+          - POST /payments/webhook
+      - contexts:
+          - marketplace_feature
+          - job_boost
+          - premium_subscription
+      - on success:
+          - update Transaction.status=paid
+          - set listing.isFeatured=true OR job.isFeatured=true
+          - log to AuditLog
+
+  - id: weekly-reveal
+    title: Scheduled reveal of mutual crushes
+    steps:
+      - use @nestjs/schedule
+      - cron: 0 12 * * FRI
+      - reveal pending reciprocal crushes
+      - send email/push notifications
+
+  - id: swagger
+    title: Generate OpenAPI
+    steps:
+      - expose /api/docs
+      - export docs/api-schema.yaml
+
+  - id: dockerize
+    title: Docker support
+    steps:
+      - Dockerfile + docker-compose with postgres
+      - healthcheck
+      - named volume for uploads and database
+
+  - id: security
+    title: Production hardening
+    steps:
+      - enable helmet, CSRF, and rate limiting
+      - use class-validator on DTOs
+      - restrict CORS to known origins
+      - validate uploaded document types (jpg, png, pdf)
+      - log admin approvals in AuditLog

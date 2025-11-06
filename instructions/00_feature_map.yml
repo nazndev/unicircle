@@ -1,0 +1,331 @@
+# instructions/00_feature_map.yml
+name: UniCircle Feature Map
+description: >
+  Functional blueprint for the UniCircle ecosystem.
+  UniCircle connects students, alumni, and professionals across universities.
+  It supports: student email onboarding, alumni manual onboarding, campus and cross-campus
+  crush/match, Circles (programme, batch, alumni), social feed, jobs/careers,
+  marketplace for accommodation and used items, moderation, and monetization.
+  This map is the source of truth for backend, mobile, and admin features.
+
+core_domains:
+  - authentication
+  - user_profile
+  - university_management
+  - anonymous_crush
+  - cross_university_match
+  - match_and_chat
+  - circles_and_groups
+  - social_feed
+  - career_and_jobs
+  - marketplace
+  - moderation_and_reporting
+  - notifications
+  - analytics_and_audit
+  - system_admin
+  - revenue_model
+
+features:
+
+  authentication:
+    goal: "Allow verified users to join with their institutional email OR alumni proof."
+    paths:
+      student_flow:
+        description: "Current students with active campus email."
+        steps:
+          - POST /auth/request-code
+          - POST /auth/verify-code
+        result: "isVerified = true, verificationStatus = approved, immediate access"
+      alumni_flow:
+        description: "Alumni who no longer have campus email."
+        steps:
+          - POST /auth/alumni-register with:
+              - fullName
+              - personalEmail
+              - universityId
+              - documents[] (ID card, certificate, transcript)
+          - status set to pending_manual_review
+          - admin approves within SLA (24h)
+        result: "isVerified = true after admin approval"
+    endpoints:
+      - POST /auth/request-code
+      - POST /auth/verify-code
+      - POST /auth/alumni-register
+      - POST /auth/refresh
+      - DELETE /auth/logout
+    rules:
+      - student_flow requires domain check
+      - alumni_flow requires at least one document
+      - unapproved or pending users can read public content but cannot post, crush, or chat
+    admin_review:
+      sla_hours: 24
+      endpoints:
+        - GET /admin/alumni-requests
+        - POST /admin/alumni-requests/:id/approve
+        - POST /admin/alumni-requests/:id/reject
+
+  user_profile:
+    goal: "Maintain a single identity that can evolve from student → alumni → professional."
+    fields:
+      - name
+      - email
+      - universityId
+      - department
+      - programme
+      - semester_or_batch
+      - gender
+      - avatarUrl
+      - interests
+      - allowCrossCampus
+      - profileMode            # student | alumni | professional
+      - currentStatus          # studying | looking_for_internship | looking_for_job | working
+      - headline               # professional tagline
+      - experience             # list/json
+      - skills                 # list/json
+      - registrationSource     # student_email | alumni_manual
+      - verificationStatus     # pending | approved | rejected
+      - documents              # uploaded proofs for alumni_manual
+    actions:
+      - GET /me
+      - PUT /me
+      - PUT /me/profile-mode    # supports student → alumni transition
+      - DELETE /me
+    transition_logic:
+      student_to_alumni:
+        trigger: user graduates or wants to keep account
+        steps:
+          - user opens Settings → Change profile type → Alumni
+          - app calls PUT /me/profile-mode with optional documents[]
+          - backend sets verificationStatus=pending if registrationSource=alumni_manual
+          - admin approves → user gets alumni features
+        notes:
+          - keep old data (crushes, posts, circles)
+          - new alumni can now join alumni circles and apply to jobs
+      alumni_to_professional:
+        trigger: user wants career/network features
+        steps:
+          - PUT /me/profile-mode = professional
+          - unlocks Jobs posting and public Feed visibility
+
+  university_management:
+    admin_only: true
+    features:
+      - create/update/deactivate universities
+      - map email domain → university
+      - per-university settings:
+          - enable_cross_university_matching
+          - enable_circle_creation
+          - enable_jobs_for_alumni
+          - enable_marketplace
+      - view and approve alumni requests for that university
+
+  anonymous_crush:
+    goal: "Anonymous attraction inside the same university."
+    logic:
+      - N crushes per day (rate-limited)
+      - only users with verificationStatus = approved
+      - reciprocal crush → Match
+      - unrevealed crushes → weekly reveal
+    endpoints:
+      - POST /crush
+      - GET /crush/mine
+      - GET /crush/pending
+
+  cross_university_match:
+    goal: "Opt-in cross-campus discovery and crush."
+    rules:
+      - both users must have allowCrossCampus = true
+      - both universities must allow cross matching
+      - pending/rejected users cannot participate
+    endpoints:
+      - POST /crush (with targetUserId from another campus)
+
+  match_and_chat:
+    goal: "Private conversations only between matched users."
+    endpoints:
+      - GET /match/mine
+      - GET /chat/:matchId
+      - POST /chat/:matchId
+    rules:
+      - validate both participants
+      - auto-delete chat messages after 7 days
+      - allow user-level block/report
+
+  circles_and_groups:
+    goal: "Programme, batch, interest, and alumni Circles."
+    circle_types:
+      - programme_circle (e.g. CSE, BBA, Pharmacy)
+      - batch_circle (e.g. Spring 2025)
+      - interest_circle
+      - alumni_circle
+    endpoints:
+      - POST /circles
+      - GET /circles
+      - POST /circles/:id/join
+      - GET /circles/:id/messages
+      - POST /circles/:id/messages
+    notes:
+      - alumni (approved) can join alumni_circle
+      - public circles should allow moderation and reporting
+
+  social_feed:
+    goal: "News and community feed similar to LinkedIn/Facebook inside UniCircle."
+    features:
+      - POST /posts
+      - GET /posts?scope=university|programme|public
+      - POST /posts/:id/like
+      - POST /posts/:id/comment
+    access_rules:
+      - pending users: read-only
+      - approved users: read and write
+    moderation:
+      - POST /report with context=post
+      - admin can hide posts
+
+  career_and_jobs:
+    goal: "Students, alumni, and professionals can discover and apply to jobs."
+    features:
+      - POST /jobs (admins, verified employers, professional users)
+      - GET /jobs?programme=MCSE
+      - GET /jobs?universityId=...
+      - POST /jobs/:id/apply
+    roles:
+      - student: view/apply
+      - alumni (approved): view/apply
+      - professional: view/apply/post
+    notes:
+      - job module can later charge employers per posting
+      - jobs can target specific universities/programmes
+
+  marketplace:
+    goal: "Let students and alumni post accommodation, flat/roommate requests, and used items."
+    listings:
+      - accommodation     # room/seat/hostel/sublet
+      - flatmate_wanted   # find people to share
+      - used_items        # books, laptop, furniture
+      - services          # optional, later
+    schema:
+      - id
+      - type: rent | sale
+      - category: accommodation | electronics | books | furniture | other
+      - title
+      - description
+      - price
+      - location
+      - universityId
+      - ownerId
+      - images[]
+      - contactInfo
+      - isActive
+      - createdAt
+    endpoints:
+      - POST /marketplace
+      - GET /marketplace
+      - GET /marketplace/:id
+      - PUT /marketplace/:id
+      - DELETE /marketplace/:id
+      - POST /report with context=marketplace
+    moderation:
+      - admin can deactivate suspicious listings
+    monetization_hooks:
+      - POST /marketplace/:id/feature  # paid boost
+      - GET /marketplace?featured=true
+
+  moderation_and_reporting:
+    user_actions:
+      - POST /report (context: match, chat, circle, post, job, marketplace)
+    admin_actions:
+      - GET /admin/reports
+      - POST /admin/reports/:id/resolve
+      - PUT /admin/users/:id/block
+      - PUT /admin/posts/:id/hide
+      - PUT /admin/marketplace/:id/deactivate
+      - GET /admin/alumni-requests
+      - POST /admin/alumni-requests/:id/approve
+    rules:
+      - blocked users lose posting/messaging/listing abilities
+      - high-risk content should generate email to moderators
+
+  notifications:
+    channels:
+      - email (default)
+      - push (future)
+    events:
+      - account_verified
+      - alumni_account_approved
+      - new_match
+      - weekly_reveal
+      - circle_announcement
+      - job_posting_matched
+      - marketplace_listing_interested
+    scheduler:
+      - cron "0 12 * * FRI" Asia/Dhaka
+
+  analytics_and_audit:
+    goal: "Visibility into growth and moderation."
+    features:
+      - capture admin actions in AuditLog
+      - track signups (student vs alumni)
+      - track marketplace usage
+      - track jobs posted/applied
+      - track cross-campus matches
+      - expose /admin/metrics for dashboard
+
+  system_admin:
+    roles:
+      - SuperAdmin
+      - CampusAdmin
+      - Moderator
+    dashboard:
+      - user counts (by profileMode, by verificationStatus)
+      - active universities
+      - crushes & matches
+      - circles and feed engagement
+      - jobs posted and applications
+      - marketplace listings (active, reported, featured)
+      - pending alumni approvals
+    config:
+      - enable_cross_university_matching
+      - enable_circle_creation
+      - enable_career_features
+      - enable_marketplace
+      - rate limits
+      - notification templates
+
+  revenue_model:
+    goal: "Make UniCircle financially sustainable without harming student UX."
+    phases:
+      - campus_phase:
+          - featured marketplace listings (accommodation, used items)
+          - local business/event ads shown in Feed
+      - alumni_phase:
+          - paid job postings for employers/recruiters
+          - mentorship/consultation credits
+      - professional_phase:
+          - UniCircle Premium (verified badge, profile insights)
+          - analytics for employers (viewed, applied, recommended students)
+    endpoints:
+      - POST /marketplace/:id/feature
+      - POST /jobs/:id/boost
+      - GET /billing/plans
+    notes:
+      - all paid actions must be audited
+      - mobile should show non-intrusive “Promoted” label
+
+non_functional:
+  security:
+    - HTTPS required
+    - JWT auth for all non-public endpoints
+    - validate file uploads for alumni and marketplace images
+    - rate limiting on POST-heavy endpoints (auth, crush, marketplace)
+  performance:
+    - indexes on email, universityId, programme, createdAt
+    - pagination for posts, jobs, marketplace
+  compliance:
+    - in-app account deletion
+    - privacy/terms/community pages
+    - document retention policy for alumni proofs
+  observability:
+    - /healthz and /readyz
+    - structured logs
+    - error tracking

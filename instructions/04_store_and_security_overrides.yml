@@ -1,0 +1,146 @@
+# instructions/04_store_and_security_overrides.yml
+name: UniCircle Store & Security Overrides
+description: >
+  Compliance, privacy, and store readiness for UniCircle.
+  This file ensures all data-handling, alumni verification, marketplace, and
+  payment disclosures meet Google Play and Apple App Store requirements.
+
+tasks:
+  - id: privacy-and-terms-pages
+    title: Host Privacy Policy, Terms, and Community Guidelines
+    steps:
+      - static site (Next.js or HTML)
+      - routes:
+          - /privacy
+          - /terms
+          - /community-guidelines
+      - include:
+          - how UniCircle handles personal data (profile, university, alumni proofs)
+          - alumni manual verification within 24 hours
+          - deletion of documents within 15 days post-verification
+          - marketplace and payments transparency
+          - moderation and reporting process
+      - publish to:
+          - https://unicircle.app/privacy
+          - https://unicircle.app/terms
+          - https://unicircle.app/community-guidelines
+      - mobile app:
+          - Settings → About → link to Privacy & Terms
+
+  - id: alumni-verification-disclosure
+    title: Disclose Alumni Verification Process
+    steps:
+      - privacy policy text:
+          - "Alumni without university email can register by submitting proof (certificate, transcript, or ID).
+             Verification occurs within 24 hours by human moderators. Proof files are deleted within 15 days."
+      - backend:
+          - store files securely in /uploads/alumni/
+          - cron cleanup for expired/rejected files (daily)
+      - mobile:
+          - show banner “Verification pending — under 24h manual review.”
+      - store Data Safety → “User-Generated Content”
+      - mention:
+          - moderators only view alumni docs for validation
+          - no use for ML or third-party analytics
+
+  - id: marketplace-data-safety
+    title: Data Safety for Marketplace Listings
+    steps:
+      - include new section in Play Store Data Safety form:
+          - Collected data: listing title, description, images (UGC)
+          - Optional personal data: contact info (voluntary field)
+          - Deletion: user can delete listing anytime
+      - backend:
+          - POST /report with context=marketplace
+          - moderation: auto-hide after >3 reports or expired
+      - mobile:
+          - show disclaimer before posting:
+              "Listings must comply with community guidelines. No illegal sales."
+      - include moderation example in /community-guidelines
+
+  - id: payments-and-revenue-compliance
+    title: Payment and Monetization Disclosure
+    steps:
+      - backend:
+          - log all Transaction entities (context: marketplace_feature, job_boost, premium_subscription)
+          - mark payment gateway as “3rd party (Nagad/Stripe)” for PCI compliance
+      - privacy policy:
+          - "UniCircle does not store or process payment card data directly.
+             All transactions are handled by trusted third-party payment providers."
+      - mobile:
+          - “Promote listing” or “Boost job” buttons link to payment confirmation
+      - store Data Safety:
+          - mark “Financial Information (via 3rd-party processor)”
+      - audit:
+          - monitor payment webhook failures
+          - auto-email admin on transaction anomalies
+
+  - id: account-deletion
+    title: In-App Account Deletion
+    steps:
+      - backend:
+          - DELETE /me → mark user deleted, anonymize logs
+      - mobile:
+          - Settings → Delete my account → confirm modal
+      - store compliance:
+          - fully self-service, no support contact required
+      - audit retention: 90 days max in AuditLog
+
+  - id: profile-mode-disclosure
+    title: Profile Modes (Student, Alumni, Professional)
+    steps:
+      - App Store description update:
+          - “UniCircle lets students connect with campus peers,
+             alumni collaborate through verified circles, and professionals
+             share opportunities after graduation.”
+      - Data Safety:
+          - Mark professional mode data as “employment & networking activity”
+      - privacy page:
+          - disclose optional professional info (headline, skills, experience)
+          - stored securely, deletable anytime
+
+  - id: https-digitalocean-setup
+    title: HTTPS + Reverse Proxy Security
+    steps:
+      - Nginx proxy:
+          - /api → backend:3000
+          - /uploads → static serve (read-only)
+      - certbot auto-renew (Let’s Encrypt)
+      - force HTTPS, disable HTTP access
+      - monitor certificate expiry
+      - environment:
+          - API_BASE_URL=https://api.unicircle.app
+          - FILE_UPLOAD_PATH=/app/uploads
+      - cron weekly SSL verification + notification
+
+  - id: moderation-and-reporting-policy
+    title: Community & Marketplace Moderation Policy
+    steps:
+      - update /community-guidelines:
+          - no harassment, hate, explicit content
+          - ban fake jobs or listings
+          - verified alumni only for professional jobs
+          - document forgery = permanent ban
+      - backend:
+          - count reports → auto-email admin if >3 per user in 24h
+          - log moderation in AuditLog
+      - mobile:
+          - link “Community Rules” in every report modal
+
+  - id: security-headers
+    title: Nginx & API Security Hardening
+    steps:
+      - headers:
+          - Content-Security-Policy: "default-src 'self'; img-src * data:;"
+          - Referrer-Policy: "no-referrer-when-downgrade"
+          - X-Content-Type-Options: "nosniff"
+          - X-Frame-Options: "DENY"
+          - Permissions-Policy: "camera=(), microphone=()"
+          - Strict-Transport-Security: "max-age=31536000; includeSubDomains"
+      - disable Nginx version tokens
+      - enable fail2ban (SSH + Nginx)
+      - run weekly vulnerability scan (npm audit + trivy)
+      - monitor API metrics for:
+          - alumni approvals/day
+          - marketplace abuse
+          - payment webhook failures

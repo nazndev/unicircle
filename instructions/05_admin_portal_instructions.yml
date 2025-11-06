@@ -1,0 +1,155 @@
+# instructions/05_admin_portal_instructions.yml
+name: UniCircle Admin Portal
+description: >
+  Web-based backoffice for UniCircle operators, campus admins, and moderators.
+  Used to manage master data (universities, programmes, circles), approve alumni
+  registrations, moderate user-generated content (posts, marketplace, reports),
+  and view platform metrics. This admin UI talks to the existing UniCircle backend
+  APIs defined in 01_backend_instructions.yml.
+
+stack:
+  framework: nextjs
+  language: typescript
+  ui: tailwind
+  auth: jwt-bearer
+  table: react-table or shadcn/ui DataTable
+
+tasks:
+  - id: scaffold-admin
+    title: Create Next.js admin app
+    steps:
+      - run: npx create-next-app@latest unicircle-admin --ts --eslint
+      - run: cd unicircle-admin && npm install axios tailwindcss postcss autoprefixer
+      - run: cd unicircle-admin && npx tailwindcss init -p
+      - configure tailwind with shadcn/ui or any DataTable components
+      - set API_BASE_URL=https://api.unicircle.pro (use .env.local)
+
+  - id: auth-and-layout
+    title: Admin login and protected layout
+    steps:
+      - create login page: /login
+        - form: email, password (or token)
+        - on submit → POST /auth/admin-login (backend should validate admin role)
+        - store JWT in httpOnly cookie or localStorage (local only)
+      - create protected layout:
+        - sidebar: Dashboard, Users, Alumni Approvals, Universities, Posts, Marketplace, Reports, Settings
+        - topbar: current admin, logout
+      - add simple RBAC:
+        - SuperAdmin → everything
+        - CampusAdmin → alumni approvals for own university, users, posts
+        - Moderator → reports, content moderation only
+
+  - id: alumni-approvals
+    title: Manage alumni verification requests
+    steps:
+      - GET /admin/alumni-requests
+        - table columns: name, email, university, submittedAt, status, actions
+        - action: View Documents → open drawer with uploaded files (images/pdf)
+        - actions:
+            - Approve → POST /admin/alumni-requests/:id/approve
+            - Reject → POST /admin/alumni-requests/:id/reject
+      - after approve/reject → toast success and refresh list
+      - show stats: pending count (badge in sidebar)
+
+  - id: users-management
+    title: Manage users
+    steps:
+      - list: GET /admin/users (if you don’t have this API, create /admin/users in backend)
+      - filters:
+          - by universityId
+          - by profileMode (student/alumni/professional)
+          - by verificationStatus (pending/approved/rejected)
+      - actions per user:
+          - View profile (read-only panel)
+          - Block / Unblock → PUT /admin/users/:id/block
+          - Force profile mode → PUT /admin/users/:id/profile-mode
+      - show user counts and growth on dashboard
+
+  - id: universities-and-master-data
+    title: Manage master data (universities, programmes, circles)
+    steps:
+      - Universities:
+          - GET /admin/universities
+          - POST /admin/universities
+          - PUT /admin/universities/:id
+          - fields: name, domain, active, allowCrossCampus
+      - Programmes (if backed):
+          - GET /admin/programmes
+          - POST /admin/programmes
+      - Circles:
+          - GET /circles
+          - ability to archive public circles with spam
+      - expose toggles:
+          - enable_marketplace
+          - enable_career_features
+          - enable_cross_university_matching
+
+  - id: content-moderation
+    title: Moderate posts, marketplace listings, and reports
+    steps:
+      - Reports inbox:
+          - GET /admin/reports
+          - show contextType (post, chat, marketplace, job)
+          - show reporter and reported user
+          - action: mark resolved → POST /admin/reports/:id/resolve
+      - Posts:
+          - GET /posts?scope=admin
+          - action: hide post → PUT /admin/posts/:id/hide
+      - Marketplace:
+          - GET /marketplace?admin=true
+          - action: deactivate listing → PUT /admin/marketplace/:id/deactivate
+      - show quick filters: “Last 24h”, “Flagged 3+ times”
+
+  - id: metrics-dashboard
+    title: Admin dashboard with KPIs
+    steps:
+      - GET /admin/metrics (backend already captures signups, alumni approvals, posts, marketplace usage as per 00/01)
+      - show cards:
+          - total users (by profileMode)
+          - pending alumni requests
+          - posts today
+          - marketplace listings today
+      - chart:
+          - signups per day (last 7 days)
+          - matches per day
+      - if endpoint not present → fallback to calling separate endpoints and aggregating client-side
+
+  - id: settings-and-logs
+    title: Global config and audit log
+    steps:
+      - Settings page:
+          - toggle: enable_cross_university_matching
+          - toggle: enable_marketplace
+          - notification email for reports
+      - Audit logs:
+          - GET /admin/audit (from AuditLog table)
+          - show: actor, action, entity, time
+      - Only SuperAdmin can see this page
+
+  - id: env-and-deploy
+    title: Admin portal deployment
+    steps:
+      - create .env.local in admin app:
+        - NEXT_PUBLIC_API_BASE_URL="https://api.unicircle.pro"
+      - build:
+        - npm run build
+        - npm run start
+      - containerize:
+        - create Dockerfile for Next.js
+      - deploy to DigitalOcean App Platform or same droplet via Nginx:
+        - /admin → Next.js admin
+        - /api → backend
+
+non_functional:
+  security:
+    - all admin routes must send Authorization: Bearer <token>
+    - backend must validate admin role on every /admin/* endpoint
+    - hide document URLs for alumni proofs behind signed URLs or API proxy
+  usability:
+    - use DataTable with search, pagination, filters
+    - toast notifications on approve/reject actions
+  auditability:
+    - every admin action (approve, reject, block, deactivate) should call backend endpoint that writes to AuditLog
+  branding:
+    - use UniCircle primary color #5C7AEA
+    - show app name and current admin in topbar

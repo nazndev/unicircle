@@ -1,0 +1,207 @@
+# instructions/02_mobile_app_instructions.yml
+name: UniCircle Mobile App Build
+description: >
+  React Native (TypeScript) mobile app for Android/iOS that supports:
+  - OTP login for students via university email
+  - Alumni onboarding via document upload and manual approval
+  - Profile modes (student, alumni, professional)
+  - Campus and cross-university crush & match
+  - Chat, Circles (programme and interest-based), Feed, Jobs
+  - Marketplace for accommodation and used items
+  - Safety, moderation, and account deletion (store compliance)
+
+stack:
+  framework: react-native
+  language: typescript
+  navigation: react-navigation
+  state: zustand
+  build: eas
+
+tasks:
+  - id: scaffold-mobile
+    title: Create project
+    steps:
+      - run: npx create-expo-app unicircle
+      - run: cd unicircle && npm install @react-navigation/native @react-navigation/native-stack @react-navigation/bottom-tabs
+      - run: cd unicircle && npx expo install react-native-screens react-native-safe-area-context
+      - run: cd unicircle && npm install axios zustand
+      - create folders: src/api, src/screens, src/components, src/navigation, src/store, src/theme, src/utils
+
+  - id: api-client
+    title: Generate client from backend OpenAPI
+    steps:
+      - pull ../docs/api-schema.yaml
+      - run: npx openapi-typescript-codegen --input ../docs/api-schema.yaml --output src/api
+      - create api.ts to attach JWT from SecureStore
+      - set baseURL=https://api.unicircle.yourdomain.com
+
+  - id: auth-flow
+    title: Student + Alumni onboarding
+    steps:
+      - Screens: Welcome, ChooseType, Email, OtpVerify, AlumniRegister, PendingApproval, ProfileSetup
+      - Flow:
+          1. Choose account type:
+              - Student → email/OTP flow
+              - Alumni → document upload flow
+          2. Student:
+              - POST /auth/request-code
+              - POST /auth/verify-code → store tokens
+              - GET /me → profileMode, verificationStatus
+          3. Alumni:
+              - POST /auth/alumni-register with { name, personalEmail, universityId, documents[] }
+              - show PendingApproval screen
+              - poll GET /me every 6h until verificationStatus=approved
+          4. Store tokens in SecureStore
+      - install: npx expo install expo-secure-store
+      - UI note: alumni upload must show preview + delete
+
+  - id: main-navigation
+    title: Tabs and stacks (mode-aware)
+    steps:
+      - Tabs (based on profileMode and verificationStatus):
+          - Student (approved):
+              - Home, Crush, Circles, Feed, Marketplace, Messages, Profile
+          - Alumni (approved):
+              - Home, Circles, Feed, Jobs, Marketplace, Messages, Profile
+          - Professional:
+              - Home, Network (alias of Circles/People), Feed, Jobs, Marketplace, Messages, Profile
+      - Home:
+          - welcome text
+          - weekly reveal countdown
+          - show “Verification pending” if verificationStatus != approved
+      - Marketplace:
+          - list view pulling GET /marketplace
+          - filters: category (accommodation, used_items, books, other)
+          - view listing → GET /marketplace/:id
+          - “Post listing” → POST /marketplace (only if approved)
+      - Messages:
+          - GET /match/mine
+          - open chat → GET/POST /chat/:matchId
+
+  - id: crush-module
+    title: Campus + cross-university crush
+    steps:
+      - List users from same university (default)
+      - Toggle “Allow cross-campus” → PUT /me { allowCrossCampus: true }
+      - Send crush → POST /crush
+      - Show pending and matched crushes
+      - Disable crush UI if verificationStatus != approved
+
+  - id: circles-module
+    title: Programme, batch, and alumni Circles
+    steps:
+      - List circles → GET /circles
+      - Join → POST /circles/:id/join
+      - Circle chat → GET/POST /circles/:id/messages
+      - Alumni (approved) can join alumni circles
+
+  - id: feed-module
+    title: Social feed
+    steps:
+      - GET /posts
+      - Create post (text + optional media) → POST /posts
+      - Like → POST /posts/:id/like
+      - Comment → POST /posts/:id/comment
+      - Report → POST /report with context=post
+      - If verificationStatus = pending → read-only mode
+
+  - id: jobs-module
+    title: Jobs and applications
+    steps:
+      - GET /jobs?programme=CSE
+      - View job details
+      - Apply → POST /jobs/:id/apply
+      - If profileMode=professional or approved alumni → show “Post a job” → POST /jobs
+
+  - id: marketplace-module
+    title: Accommodation & used items marketplace
+    steps:
+      - Screens: MarketplaceList, MarketplaceFilters, MarketplaceDetails, MarketplaceCreate
+      - Browse:
+          - GET /marketplace
+          - query params:
+              - category=accommodation|electronics|books|furniture|other
+              - universityId=current user’s university
+          - show image, title, price/rent, location, createdAt
+      - Create listing:
+          - only if verificationStatus=approved
+          - POST /marketplace with:
+              - type: "rent" | "sale"
+              - category
+              - title, description
+              - price (optional)
+              - location
+              - images[]
+          - upload images via multipart
+      - Report listing:
+          - POST /report with contextType="marketplace" and contextId=listingId
+      - (optional if backend enabled) Feature listing:
+          - POST /marketplace/:id/feature
+          - show “Featured” tag
+
+  - id: profile-and-modes
+    title: Profile screen and mode switching
+    steps:
+      - show:
+          - name, email, university, programme, avatar
+          - verificationStatus badge (pending/approved)
+      - section “Profile Type”:
+          - Student
+          - Alumni (if selected and user had student email → no docs)
+          - Alumni (manual) → open upload modal → PUT /me/profile-mode
+          - Professional → PUT /me/profile-mode
+      - add “Delete my account” → DELETE /me
+      - add “Allow cross-campus” toggle → PUT /me
+
+  - id: notifications
+    title: App notifications
+    steps:
+      - use expo-notifications
+      - handle:
+          - alumni_account_approved
+          - match_created
+          - weekly_reveal
+          - new_job_post
+          - marketplace_interest (future)
+      - simple Notifications screen to list recent events
+
+  - id: safety-and-report
+    title: Reporting and moderation
+    steps:
+      - everywhere (chat, circles, feed, jobs, marketplace) → “Report”
+      - POST /report { contextType, contextId, reason }
+      - show Community & Safety Guidelines screen
+      - disable posting for pending users
+
+  - id: theming
+    title: App theme
+    steps:
+      - colors:
+          - primary: #5C7AEA
+          - background: #F5F7FB
+          - danger: #E74C3C
+          - success: #27AE60
+      - rounded cards, consistent spacing
+      - app icon + splash in app.json
+
+  - id: build-config
+    title: Store readiness
+    steps:
+      - create eas.json with production profiles
+      - android.package: "com.unicircle.app"
+      - ios.bundleIdentifier: "com.unicircle.app"
+      - API base URL: https://api.unicircle.yourdomain.com
+      - Settings:
+          - Privacy Policy → /privacy
+          - Terms of Use → /terms
+          - Delete Account → DELETE /me
+          - Report Issue → mailto:support@unicircle.app
+      - ensure ATS/HTTPS is enabled
+
+  - id: store-readiness
+    title: Store compliance
+    steps:
+      - show “Pending Verification” screen for alumni
+      - make Marketplace read-only for unverified users
+      - target latest Android SDK (35) and current iOS SDK
+      - verify push notification permission flow
