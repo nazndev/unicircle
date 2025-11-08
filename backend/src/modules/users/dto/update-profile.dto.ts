@@ -54,5 +54,13 @@ export class UpdateProfileDto {
   @ApiProperty({ required: false, type: 'array', items: { type: 'string' } })
   @IsOptional()
   skills?: string[];
+
+  @ApiProperty({ 
+    required: false,
+    description: 'University ID (teachers can change their university)',
+  })
+  @IsOptional()
+  @IsString()
+  universityId?: string;
 }
 

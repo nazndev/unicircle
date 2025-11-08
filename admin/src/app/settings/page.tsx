@@ -11,14 +11,12 @@ import {
   Button,
   Typography,
   Spin,
-  Table,
   Space,
   Tag,
   Row,
   Col,
   Divider,
-  Empty,
-  Avatar,
+  Select,
 } from 'antd';
 import {
   SettingOutlined,
@@ -29,57 +27,140 @@ import {
   CheckCircleOutlined,
   MailOutlined,
   GlobalOutlined,
-  ShoppingOutlined,
-  ThunderboltOutlined,
 } from '@ant-design/icons';
-import type { ColumnsType } from 'antd/es/table';
 import toast from 'react-hot-toast';
-import { format } from 'date-fns';
 
 const { Title, Text } = Typography;
 
-interface Settings {
-  enableCrossUniversityMatching: boolean;
-  enableMarketplace: boolean;
-  enableCareerFeatures: boolean;
-  reportNotificationEmail: string;
+interface ProfileFeatures {
+  marketplace: boolean;
+  career: boolean;
+  crush?: boolean;
+  circles?: boolean;
+  network?: boolean;
+  feed: boolean;
+  research?: boolean;
 }
 
-interface AuditLog {
-  id: string;
-  actor: string;
-  action: string;
-  entity: string;
-  entityId: string;
-  createdAt: string;
+interface Settings {
+  enableCrossUniversityMatching: boolean;
+  reportNotificationEmail: string;
+  enableStudentRegistration?: boolean;
+  enableAlumniRegistration?: boolean;
+  enableTeacherRegistration?: boolean;
+  studentFeatures?: ProfileFeatures;
+  alumniFeatures?: ProfileFeatures;
+  teacherFeatures?: ProfileFeatures;
 }
+
+const { Option } = Select;
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings>({
     enableCrossUniversityMatching: false,
-    enableMarketplace: true,
-    enableCareerFeatures: true,
     reportNotificationEmail: '',
+    enableStudentRegistration: true,
+    enableAlumniRegistration: true,
+    enableTeacherRegistration: true,
+    studentFeatures: {
+      marketplace: true,
+      career: true,
+      crush: true,
+      circles: true,
+      feed: true,
+    },
+    alumniFeatures: {
+      marketplace: true,
+      career: true,
+      circles: true,
+      feed: true,
+    },
+    teacherFeatures: {
+      marketplace: true,
+      career: true,
+      circles: true,
+      feed: true,
+      research: true,
+    },
   });
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [availableCountries, setAvailableCountries] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [loadingCountries, setLoadingCountries] = useState(false);
 
   useEffect(() => {
     loadSettings();
-    loadAuditLogs();
   }, []);
 
   const loadSettings = async () => {
     try {
       const response = await api.get('/admin/settings');
-      const data = response.data?.data || response.data;
-      setSettings(data || {
-        enableCrossUniversityMatching: false,
-        enableMarketplace: true,
-        enableCareerFeatures: true,
-        reportNotificationEmail: '',
+      console.log('[SETTINGS] Full response:', response.data);
+      
+      // Handle nested response structure: { success: true, data: {...} } or { data: { success: true, data: {...} } }
+      let data = response.data;
+      if (data?.data && typeof data.data === 'object' && 'success' in data.data) {
+        // Double nested: { data: { success: true, data: {...} } }
+        data = data.data.data;
+      } else if (data?.data && typeof data.data === 'object') {
+        // Single nested: { data: {...} }
+        data = data.data;
+      } else if (data?.success && data?.data) {
+        // { success: true, data: {...} }
+        data = data.data;
+      }
+      
+      console.log('[SETTINGS] Extracted data:', data);
+      console.log('[SETTINGS] Account type flags:', {
+        student: data?.enableStudentRegistration,
+        alumni: data?.enableAlumniRegistration,
+        teacher: data?.enableTeacherRegistration,
       });
+      
+      const defaultSettings = {
+        enableCrossUniversityMatching: false,
+        reportNotificationEmail: '',
+        enableStudentRegistration: true,
+        enableAlumniRegistration: true,
+        enableTeacherRegistration: true,
+        studentFeatures: {
+          marketplace: true,
+          career: true,
+          crush: true,
+          circles: true,
+          feed: true,
+        },
+        alumniFeatures: {
+          marketplace: true,
+          career: true,
+          circles: true,
+          feed: true,
+        },
+        teacherFeatures: {
+          marketplace: true,
+          career: true,
+          circles: true,
+          feed: true,
+          research: true,
+        },
+      };
+      
+      // Merge with defaults, but preserve false values explicitly
+      const mergedSettings = {
+        ...defaultSettings,
+        ...data,
+        enableCrossUniversityMatching: data?.enableCrossUniversityMatching !== undefined ? data.enableCrossUniversityMatching : defaultSettings.enableCrossUniversityMatching,
+        reportNotificationEmail: data?.reportNotificationEmail || defaultSettings.reportNotificationEmail,
+        enableStudentRegistration: data?.enableStudentRegistration !== undefined ? data.enableStudentRegistration : defaultSettings.enableStudentRegistration,
+        enableAlumniRegistration: data?.enableAlumniRegistration !== undefined ? data.enableAlumniRegistration : defaultSettings.enableAlumniRegistration,
+        enableTeacherRegistration: data?.enableTeacherRegistration !== undefined ? data.enableTeacherRegistration : defaultSettings.enableTeacherRegistration,
+        studentFeatures: data?.studentFeatures || defaultSettings.studentFeatures,
+        alumniFeatures: data?.alumniFeatures || defaultSettings.alumniFeatures,
+        teacherFeatures: data?.teacherFeatures || defaultSettings.teacherFeatures,
+      };
+      
+      console.log('[SETTINGS] Merged settings:', mergedSettings);
+      setSettings(mergedSettings);
     } catch (error) {
       console.error('Failed to load settings:', error);
     } finally {
@@ -87,23 +168,65 @@ export default function SettingsPage() {
     }
   };
 
-  const loadAuditLogs = async () => {
+  const loadAvailableCountries = async () => {
+    setLoadingCountries(true);
     try {
-      const response = await api.get('/admin/audit?page=1&limit=100');
-      const data = response.data?.data || response.data;
-      setAuditLogs(Array.isArray(data?.logs) ? data.logs : (Array.isArray(data) ? data : []));
+      const response = await api.get('/university/countries');
+      const data = response.data?.data || response.data || [];
+      setAvailableCountries(Array.isArray(data) ? data : []);
     } catch (error) {
-      console.error('Failed to load audit logs:', error);
-      setAuditLogs([]);
+      console.error('Failed to load countries:', error);
+      toast.error('Failed to load available countries');
+    } finally {
+      setLoadingCountries(false);
     }
   };
 
   const handleSave = async () => {
     setSaving(true);
     try {
-      await api.put('/admin/settings', settings);
-      toast.success('Settings saved');
+      // Prepare settings payload - use current state values directly
+      // Ensure all boolean values are explicitly set (not undefined)
+      // IMPORTANT: Check for undefined explicitly, not using ?? which treats false as falsy
+      const settingsPayload = {
+        enableCrossUniversityMatching: settings.enableCrossUniversityMatching !== undefined ? Boolean(settings.enableCrossUniversityMatching) : false,
+        reportNotificationEmail: settings.reportNotificationEmail || null,
+        // Explicitly check for undefined to preserve false values
+        enableStudentRegistration: settings.enableStudentRegistration !== undefined ? Boolean(settings.enableStudentRegistration) : true,
+        enableAlumniRegistration: settings.enableAlumniRegistration !== undefined ? Boolean(settings.enableAlumniRegistration) : true,
+        enableTeacherRegistration: settings.enableTeacherRegistration !== undefined ? Boolean(settings.enableTeacherRegistration) : true,
+        studentFeatures: settings.studentFeatures || null,
+        alumniFeatures: settings.alumniFeatures || null,
+        teacherFeatures: settings.teacherFeatures || null,
+      };
+      
+      console.log('[SETTINGS] Local settings state before save:', {
+        enableTeacherRegistration: settings.enableTeacherRegistration,
+        type: typeof settings.enableTeacherRegistration,
+      });
+      console.log('[SETTINGS] Saving settings payload:', settingsPayload);
+      console.log('[SETTINGS] Teacher registration in payload:', settingsPayload.enableTeacherRegistration, typeof settingsPayload.enableTeacherRegistration);
+      
+      const response = await api.put('/admin/settings', settingsPayload);
+      console.log('[SETTINGS] Save response:', response.data);
+      
+      // Extract the updated settings from response
+      let responseData = response.data?.data || response.data;
+      if (responseData?.data && typeof responseData.data === 'object') {
+        responseData = responseData.data;
+      } else if (responseData?.success && responseData?.data) {
+        responseData = responseData.data;
+      }
+      
+      console.log('[SETTINGS] Updated settings from response:', responseData);
+      console.log('[SETTINGS] Teacher registration after save:', responseData?.enableTeacherRegistration);
+      
+      toast.success('Settings saved successfully');
+      // Reload settings to get the updated values
+      await loadSettings();
     } catch (error: any) {
+      console.error('[SETTINGS] Failed to save:', error);
+      console.error('[SETTINGS] Error response:', error.response?.data);
       toast.error(error.response?.data?.message || 'Failed to save settings');
     } finally {
       setSaving(false);
@@ -121,65 +244,25 @@ export default function SettingsPage() {
     );
   }
 
-  const auditColumns: ColumnsType<AuditLog> = [
-    {
-      title: 'Actor',
-      key: 'actor',
-      width: 200,
-      render: (_, record) => (
-        <Space>
-          <Avatar icon={<UserOutlined />} style={{ backgroundColor: '#2358d6' }} />
-          <Text>{record.actor}</Text>
-        </Space>
-      ),
-    },
-    {
-      title: 'Action',
-      dataIndex: 'action',
-      key: 'action',
-      width: 200,
-      render: (action) => (
-        <Tag color="blue" className="capitalize">
-          {action.replace(/_/g, ' ')}
-        </Tag>
-      ),
-    },
-    {
-      title: 'Entity',
-      dataIndex: 'entity',
-      key: 'entity',
-      width: 150,
-      render: (entity) => (
-        <Tag color="purple" className="capitalize">
-          {entity}
-        </Tag>
-      ),
-    },
-    {
-      title: 'Entity ID',
-      dataIndex: 'entityId',
-      key: 'entityId',
-      width: 200,
-      render: (id) => <Text code>{id}</Text>,
-    },
-    {
-      title: 'Date',
-      dataIndex: 'createdAt',
-      key: 'createdAt',
-      width: 180,
-      render: (date) => format(new Date(date), 'MMM dd, yyyy HH:mm'),
-    },
-  ];
-
   return (
     <ProtectedRoute requiredRole={['super_admin']}>
       <div className="space-y-6">
-        {/* Page Header */}
-        <div className="flex items-center justify-between">
+        {/* Page Header with Save Button */}
+        <div className="flex items-center justify-between bg-white p-4 rounded-lg shadow-sm border border-gray-200 sticky top-0 z-10">
           <div>
             <Title level={2} className="!mb-2 !text-gray-900">Platform Settings</Title>
-            <Text type="secondary">Manage platform configuration and view audit logs</Text>
+            <Text type="secondary">Manage platform configuration and feature settings</Text>
           </div>
+          <Button
+            type="primary"
+            icon={<SaveOutlined />}
+            onClick={handleSave}
+            loading={saving}
+            size="large"
+            className="min-w-[140px]"
+          >
+            {saving ? 'Saving...' : 'Save All Settings'}
+          </Button>
         </div>
 
         <Row gutter={[24, 24]}>
@@ -218,47 +301,57 @@ export default function SettingsPage() {
 
                 <Divider />
 
-                <Form.Item label="Marketplace">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <Text strong>Enable Marketplace</Text>
+                <Form.Item label="Account Type Availability">
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
                       <div>
-                        <Text type="secondary" className="text-xs">
-                          Allow users to buy and sell items
-                        </Text>
+                        <Text strong>Student Registration</Text>
+                        <div>
+                          <Text type="secondary" className="text-xs">
+                            Allow new student registrations via university email
+                          </Text>
+                        </div>
                       </div>
+                      <Switch
+                        checked={settings.enableStudentRegistration !== undefined ? settings.enableStudentRegistration : true}
+                        onChange={(checked) =>
+                          setSettings({ ...settings, enableStudentRegistration: checked })
+                        }
+                      />
                     </div>
-                    <Switch
-                      checked={settings.enableMarketplace}
-                      onChange={(checked) =>
-                        setSettings({ ...settings, enableMarketplace: checked })
-                      }
-                      checkedChildren={<ShoppingOutlined />}
-                      unCheckedChildren={<ShoppingOutlined />}
-                    />
-                  </div>
-                </Form.Item>
-
-                <Divider />
-
-                <Form.Item label="Career Features">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <Text strong>Enable Career Features</Text>
+                    <div className="flex items-center justify-between">
                       <div>
-                        <Text type="secondary" className="text-xs">
-                          Enable job postings and career-related features
-                        </Text>
+                        <Text strong>Alumni Registration</Text>
+                        <div>
+                          <Text type="secondary" className="text-xs">
+                            Allow new alumni registrations with verification documents
+                          </Text>
+                        </div>
                       </div>
+                      <Switch
+                        checked={settings.enableAlumniRegistration !== undefined ? settings.enableAlumniRegistration : true}
+                        onChange={(checked) =>
+                          setSettings({ ...settings, enableAlumniRegistration: checked })
+                        }
+                      />
                     </div>
-                    <Switch
-                      checked={settings.enableCareerFeatures}
-                      onChange={(checked) =>
-                        setSettings({ ...settings, enableCareerFeatures: checked })
-                      }
-                      checkedChildren={<ThunderboltOutlined />}
-                      unCheckedChildren={<ThunderboltOutlined />}
-                    />
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <Text strong>Teacher Registration</Text>
+                        <div>
+                          <Text type="secondary" className="text-xs">
+                            Allow new teacher registrations (university email or documents)
+                          </Text>
+                        </div>
+                      </div>
+                      <Switch
+                        checked={settings.enableTeacherRegistration !== undefined ? settings.enableTeacherRegistration : true}
+                        onChange={(checked) => {
+                          console.log('[SETTINGS] Teacher registration toggle:', checked);
+                          setSettings({ ...settings, enableTeacherRegistration: checked });
+                        }}
+                      />
+                    </div>
                   </div>
                 </Form.Item>
 
@@ -279,62 +372,285 @@ export default function SettingsPage() {
                     Email address to receive report notifications
                   </Text>
                 </Form.Item>
-
-                <Form.Item className="mb-0 mt-6">
-                  <Button
-                    type="primary"
-                    icon={<SaveOutlined />}
-                    onClick={handleSave}
-                    loading={saving}
-                    block
-                    size="large"
-                  >
-                    {saving ? 'Saving...' : 'Save Settings'}
-                  </Button>
-                </Form.Item>
               </Form>
             </Card>
-          </Col>
 
-          {/* Audit Logs Card */}
-          <Col xs={24} lg={12}>
+            {/* Profile-Wise Features Card */}
             <Card
               title={
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <FileTextOutlined className="text-green-500" />
-                    <span>Audit Logs</span>
-                  </div>
-                  <Button
-                    icon={<ReloadOutlined />}
-                    onClick={loadAuditLogs}
-                    size="small"
-                  >
-                    Refresh
-                  </Button>
+                <div className="flex items-center space-x-2">
+                  <UserOutlined className="text-purple-500" />
+                  <span>Profile-Wise Features</span>
                 </div>
               }
-              className="shadow-md border-0"
+              className="shadow-md border-0 mt-6"
             >
-              <Table
-                columns={auditColumns}
-                dataSource={auditLogs}
-                rowKey="id"
-                pagination={{
-                  pageSize: 10,
-                  showSizeChanger: true,
-                }}
-                scroll={{ y: 400 }}
-                locale={{
-                  emptyText: (
-                    <Empty
-                      image={<FileTextOutlined style={{ fontSize: 48, color: '#d9d9d9' }} />}
-                      description="No audit logs found"
-                    />
-                  ),
-                }}
-                size="small"
-              />
+              <Form layout="vertical" className="space-y-6">
+                {/* Student Features */}
+                <div>
+                  <Title level={4} className="!mb-4">Student Features</Title>
+                  <Space direction="vertical" className="w-full" size="middle">
+                    <div className="flex items-center justify-between">
+                      <Text>Marketplace</Text>
+                      <Switch
+                        checked={settings.studentFeatures?.marketplace ?? true}
+                        onChange={(checked) =>
+                          setSettings({
+                            ...settings,
+                            studentFeatures: {
+                              ...settings.studentFeatures,
+                              marketplace: checked,
+                            } as ProfileFeatures,
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <Text>Career Features</Text>
+                      <Switch
+                        checked={settings.studentFeatures?.career ?? true}
+                        onChange={(checked) =>
+                          setSettings({
+                            ...settings,
+                            studentFeatures: {
+                              ...settings.studentFeatures,
+                              career: checked,
+                            } as ProfileFeatures,
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <Text>Crush Matching</Text>
+                      <Switch
+                        checked={settings.studentFeatures?.crush ?? true}
+                        onChange={(checked) =>
+                          setSettings({
+                            ...settings,
+                            studentFeatures: {
+                              ...settings.studentFeatures,
+                              crush: checked,
+                            } as ProfileFeatures,
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <Text>Circles</Text>
+                      <Switch
+                        checked={settings.studentFeatures?.circles ?? true}
+                        onChange={(checked) =>
+                          setSettings({
+                            ...settings,
+                            studentFeatures: {
+                              ...settings.studentFeatures,
+                              circles: checked,
+                            } as ProfileFeatures,
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <Text>Feed</Text>
+                      <Switch
+                        checked={settings.studentFeatures?.feed ?? true}
+                        onChange={(checked) =>
+                          setSettings({
+                            ...settings,
+                            studentFeatures: {
+                              ...settings.studentFeatures,
+                              feed: checked,
+                            } as ProfileFeatures,
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <Text>Research Collaboration</Text>
+                      <Switch
+                        checked={settings.studentFeatures?.research ?? true}
+                        onChange={(checked) =>
+                          setSettings({
+                            ...settings,
+                            studentFeatures: {
+                              ...settings.studentFeatures,
+                              research: checked,
+                            } as ProfileFeatures,
+                          })
+                        }
+                      />
+                    </div>
+                  </Space>
+                </div>
+
+                <Divider />
+
+                {/* Alumni Features */}
+                <div>
+                  <Title level={4} className="!mb-4">Alumni Features</Title>
+                  <Space direction="vertical" className="w-full" size="middle">
+                    <div className="flex items-center justify-between">
+                      <Text>Marketplace</Text>
+                      <Switch
+                        checked={settings.alumniFeatures?.marketplace ?? true}
+                        onChange={(checked) =>
+                          setSettings({
+                            ...settings,
+                            alumniFeatures: {
+                              ...settings.alumniFeatures,
+                              marketplace: checked,
+                            } as ProfileFeatures,
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <Text>Career Features</Text>
+                      <Switch
+                        checked={settings.alumniFeatures?.career ?? true}
+                        onChange={(checked) =>
+                          setSettings({
+                            ...settings,
+                            alumniFeatures: {
+                              ...settings.alumniFeatures,
+                              career: checked,
+                            } as ProfileFeatures,
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <Text>Circles</Text>
+                      <Switch
+                        checked={settings.alumniFeatures?.circles ?? true}
+                        onChange={(checked) =>
+                          setSettings({
+                            ...settings,
+                            alumniFeatures: {
+                              ...settings.alumniFeatures,
+                              circles: checked,
+                            } as ProfileFeatures,
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <Text>Feed</Text>
+                      <Switch
+                        checked={settings.alumniFeatures?.feed ?? true}
+                        onChange={(checked) =>
+                          setSettings({
+                            ...settings,
+                            alumniFeatures: {
+                              ...settings.alumniFeatures,
+                              feed: checked,
+                            } as ProfileFeatures,
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <Text>Research Collaboration</Text>
+                      <Switch
+                        checked={settings.alumniFeatures?.research ?? true}
+                        onChange={(checked) =>
+                          setSettings({
+                            ...settings,
+                            alumniFeatures: {
+                              ...settings.alumniFeatures,
+                              research: checked,
+                            } as ProfileFeatures,
+                          })
+                        }
+                      />
+                    </div>
+                  </Space>
+                </div>
+
+                <Divider />
+
+                {/* Teacher Features */}
+                <div>
+                  <Title level={4} className="!mb-4">Teacher Features</Title>
+                  <Space direction="vertical" className="w-full" size="middle">
+                    <div className="flex items-center justify-between">
+                      <Text>Marketplace</Text>
+                      <Switch
+                        checked={settings.teacherFeatures?.marketplace ?? true}
+                        onChange={(checked) =>
+                          setSettings({
+                            ...settings,
+                            teacherFeatures: {
+                              ...settings.teacherFeatures,
+                              marketplace: checked,
+                            } as ProfileFeatures,
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <Text>Career Features</Text>
+                      <Switch
+                        checked={settings.teacherFeatures?.career ?? true}
+                        onChange={(checked) =>
+                          setSettings({
+                            ...settings,
+                            teacherFeatures: {
+                              ...settings.teacherFeatures,
+                              career: checked,
+                            } as ProfileFeatures,
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <Text>Circles</Text>
+                      <Switch
+                        checked={settings.teacherFeatures?.circles ?? true}
+                        onChange={(checked) =>
+                          setSettings({
+                            ...settings,
+                            teacherFeatures: {
+                              ...settings.teacherFeatures,
+                              circles: checked,
+                            } as ProfileFeatures,
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <Text>Feed</Text>
+                      <Switch
+                        checked={settings.teacherFeatures?.feed ?? true}
+                        onChange={(checked) =>
+                          setSettings({
+                            ...settings,
+                            teacherFeatures: {
+                              ...settings.teacherFeatures,
+                              feed: checked,
+                            } as ProfileFeatures,
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <Text>Research Collaboration</Text>
+                      <Switch
+                        checked={settings.teacherFeatures?.research ?? true}
+                        onChange={(checked) =>
+                          setSettings({
+                            ...settings,
+                            teacherFeatures: {
+                              ...settings.teacherFeatures,
+                              research: checked,
+                            } as ProfileFeatures,
+                          })
+                        }
+                      />
+                    </div>
+                  </Space>
+                </div>
+              </Form>
             </Card>
           </Col>
         </Row>

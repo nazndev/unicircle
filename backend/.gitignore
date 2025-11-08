@@ -40,9 +40,12 @@ lerna-debug.log*
 .env.prod
 .env.*.local
 
-# Uploads
+# Uploads (old location - kept for backward compatibility)
 /uploads
 !/uploads/.gitkeep
+
+# Temporary uploads
+/temp-uploads
 
 # Prisma
 /prisma/migrations

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity } from 'react-native';
 import apiClient from '../../api/client';
+import UserCard from '../../components/UserCard';
 
 export default function MessagesScreen() {
   const [matches, setMatches] = useState([]);
@@ -26,9 +27,12 @@ export default function MessagesScreen() {
         keyExtractor={(item: any) => item.id}
         renderItem={({ item }: any) => (
           <TouchableOpacity style={styles.match}>
-            <Text style={styles.matchName}>
-              {item.otherUser?.name || 'Unknown'}
-            </Text>
+            <UserCard
+              name={item.otherUser?.name}
+              isVerified={item.otherUser?.isVerified}
+              university={item.otherUser?.university}
+              size="medium"
+            />
             {item.messages?.[0] && (
               <Text style={styles.lastMessage} numberOfLines={1}>
                 {item.messages[0].content}

@@ -39,12 +39,24 @@ api.interceptors.response.use(
     return response;
   },
   (error) => {
+    // Handle network errors (backend not running)
+    if (error.code === 'ERR_NETWORK' || error.message === 'Network Error') {
+      console.error('[API] Network Error - Backend may not be running:', {
+        url: error.config?.url,
+        baseURL: error.config?.baseURL,
+        message: 'Cannot connect to backend server. Please ensure the backend is running on http://localhost:3000'
+      });
+      // Don't redirect on network errors - let the component handle it
+      return Promise.reject(error);
+    }
+
     console.error('[API] Response error:', {
       url: error.config?.url,
       status: error.response?.status,
       message: error.message,
       data: error.response?.data
     });
+    
     if (error.response?.status === 401) {
       console.log('[API] 401 Unauthorized - redirecting to login');
       if (typeof window !== 'undefined') {

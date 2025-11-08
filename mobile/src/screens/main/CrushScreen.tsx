@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert } from 'react-native';
 import { useAuthStore } from '../../store/authStore';
 import apiClient from '../../api/client';
+import UserCard from '../../components/UserCard';
 
 export default function CrushScreen() {
   const { user } = useAuthStore();
@@ -37,7 +38,12 @@ export default function CrushScreen() {
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
           <View style={styles.item}>
-            <Text style={styles.itemName}>{item.toUser?.name || 'Unknown'}</Text>
+            <UserCard
+              name={item.toUser?.name}
+              isVerified={item.toUser?.isVerified}
+              university={item.toUser?.university}
+              size="medium"
+            />
             <Text style={styles.itemStatus}>Status: {item.status}</Text>
           </View>
         )}

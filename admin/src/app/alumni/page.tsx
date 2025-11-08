@@ -33,6 +33,7 @@ import {
   MailOutlined,
   BankOutlined,
   CalendarOutlined,
+  GlobalOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import toast from 'react-hot-toast';
@@ -50,6 +51,10 @@ interface AlumniRequest {
     email: string;
     university: {
       name: string;
+      country?: {
+        name: string;
+        code: string | null;
+      } | null;
     } | null;
   };
   documents: any;
@@ -145,6 +150,16 @@ export default function AlumniPage() {
         <Space>
           <BankOutlined className="text-gray-400" />
           <Text>{record.user.university?.name || 'N/A'}</Text>
+        </Space>
+      ),
+    },
+    {
+      title: 'Country',
+      key: 'country',
+      render: (_, record) => (
+        <Space>
+          <GlobalOutlined className="text-gray-400" />
+          <Text>{record.user.university?.country?.name || 'N/A'}</Text>
         </Space>
       ),
     },
@@ -388,6 +403,11 @@ export default function AlumniPage() {
                     <BankOutlined className="text-gray-400" />
                     <Text type="secondary">
                       {selectedRequest.user.university?.name || 'N/A'}
+                      {selectedRequest.user.university?.country && (
+                        <span className="ml-2 text-gray-400">
+                          ({selectedRequest.user.university.country.name})
+                        </span>
+                      )}
                     </Text>
                   </div>
                   <div className="flex items-center space-x-2">
@@ -403,42 +423,223 @@ export default function AlumniPage() {
 
               <div>
                 <Title level={5}>Uploaded Documents</Title>
-                {selectedRequest.documents && typeof selectedRequest.documents === 'object' ? (
+                {selectedRequest.documents ? (
                   <div className="space-y-3 mt-4">
-                    {Object.entries(selectedRequest.documents).map(([key, value]: [string, any]) => (
-                      <Card key={key} size="small" className="mb-3">
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <Text strong className="block mb-2 capitalize">
-                              {key.replace(/_/g, ' ')}
-                            </Text>
-                            {typeof value === 'string' && (
-                              <div className="flex items-center space-x-2">
-                                {value.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
-                                  <Image
-                                    src={value}
-                                    alt={key}
-                                    width={200}
-                                    className="rounded"
-                                    preview
-                                  />
-                                ) : (
-                                  <Button
-                                    type="link"
-                                    icon={<EyeOutlined />}
-                                    href={value}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                  >
-                                    View Document
-                                  </Button>
-                                )}
-                              </div>
-                            )}
+                    {/* Check if any documents are invalid */}
+                    {(() => {
+                      const docs = Array.isArray(selectedRequest.documents) 
+                        ? selectedRequest.documents 
+                        : typeof selectedRequest.documents === 'object' 
+                          ? Object.values(selectedRequest.documents) 
+                          : [];
+                      const invalidDocs = docs.filter((doc: any) => 
+                        typeof doc === 'string' && (doc.includes('file://') || doc.includes('/Users/') || doc.includes('/Library/'))
+                      );
+                      return invalidDocs.length > 0 ? (
+                        <div className="mb-4 p-4 bg-red-50 border-l-4 border-red-400 rounded">
+                          <div className="flex items-start">
+                            <div className="flex-1">
+                              <Text type="danger" className="block mb-1 font-semibold">
+                                ⚠️ Warning: {invalidDocs.length} Invalid Document{invalidDocs.length > 1 ? 's' : ''} Detected
+                              </Text>
+                              <Text type="secondary" className="text-sm">
+                                Some documents have invalid local file paths and cannot be verified. 
+                                These documents were uploaded before the fix and need to be re-uploaded by the user.
+                              </Text>
+                              <Text type="secondary" className="text-xs mt-2">
+                                <strong>Recommendation:</strong> Reject this request and ask the user to re-submit with properly uploaded documents.
+                              </Text>
+                            </div>
                           </div>
                         </div>
-                      </Card>
-                    ))}
+                      ) : null;
+                    })()}
+                    {Array.isArray(selectedRequest.documents) ? (
+                      // Handle array of document URLs
+                      selectedRequest.documents.map((docUrl: string, index: number) => (
+                        <Card key={index} size="small" className="mb-3">
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <Text strong className="block mb-2">
+                                Document {index + 1}
+                              </Text>
+                              {typeof docUrl === 'string' && (
+                                <div className="flex items-center space-x-2">
+                                  {/* Check if this is a local file path (invalid) */}
+                                  {docUrl.includes('file://') || docUrl.includes('/Users/') || docUrl.includes('/Library/') ? (
+                                    <div className="p-4 bg-yellow-50 border border-yellow-200 rounded">
+                                      <div className="flex items-start justify-between">
+                                        <div className="flex-1">
+                                          <Text type="warning" className="block mb-1">
+                                            <strong>⚠️ Invalid Document URL</strong>
+                                          </Text>
+                                          <Text type="secondary" className="text-sm mb-2">
+                                            This document was uploaded with a local file path and cannot be displayed. 
+                                            The user needs to re-upload this document through the mobile app.
+                                          </Text>
+                                          <Text type="secondary" className="text-xs font-mono bg-gray-100 p-2 rounded break-all">
+                                            {docUrl.length > 100 ? `${docUrl.substring(0, 100)}...` : docUrl}
+                                          </Text>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ) : docUrl.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
+                                    <Image
+                                      src={(() => {
+                                        // Construct full URL
+                                        let fullUrl = docUrl;
+                                        if (!docUrl.startsWith('http://') && !docUrl.startsWith('https://')) {
+                                          const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.replace('/api', '') || 'http://localhost:3000';
+                                          fullUrl = `${baseUrl}${docUrl.startsWith('/') ? docUrl : '/' + docUrl}`;
+                                        }
+                                        // Use proxy endpoint to add authentication
+                                        const proxyUrl = `/api/proxy-image?url=${encodeURIComponent(fullUrl)}`;
+                                        console.log('[Alumni Documents] Image URL:', { docUrl, fullUrl, proxyUrl });
+                                        return proxyUrl;
+                                      })()}
+                                      alt={`Document ${index + 1}`}
+                                      width={200}
+                                      className="rounded"
+                                      preview={{
+                                        mask: 'Preview',
+                                        src: (() => {
+                                          // Construct full URL for preview
+                                          let fullUrl = docUrl;
+                                          if (!docUrl.startsWith('http://') && !docUrl.startsWith('https://')) {
+                                            const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.replace('/api', '') || 'http://localhost:3000';
+                                            fullUrl = `${baseUrl}${docUrl.startsWith('/') ? docUrl : '/' + docUrl}`;
+                                          }
+                                          // Use proxy endpoint for preview as well
+                                          return `/api/proxy-image?url=${encodeURIComponent(fullUrl)}`;
+                                        })(),
+                                      }}
+                                      fallback="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMIAAADDCAYAAADQvc6UAAABRWlDQ1BJQ0MgUHJvZmlsZQAAKJFjYGASSSwoyGFhYGDIzSspCnJ3UoiIjFJgf8LAwSDCIMogwMCcmFxc4BgQ4ANUwgCjUcG3awyMIPqyLsis7PPOq3QdDFcvjV3jOD1boQVTPQrgSkktTgbSf4A4LbmgqISBgTEFyFYuLykAsTuAbJEioKOA7DkgdjqEvQHEToKwj4DVhAQ5A9k3gGyB5IxEoBmML4BsnSQk8XQkNtReEOBxcfXxUQg1Mjc0dyHgXNJBSWpFCYh2zi+oLMpMzyhRcASGUqqCZ16yno6CkYGRAQMDKMwhqj/fAIcloxgHQqxAjIHBEugw5sUIsSQpBobtQPdLciLEVJYzMPBHMDBsayhILEqEO4DxG0txmrERhM29nYGBddr//5/DGRjYNRkY/l7////39v///y4Dmn+LgeHANwDrkl1AuO+pmgAAADhlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAAqACAAQAAAABAAAAwqADAAQAAAABAAAAwwAAAAD9b/HnAAAHlklEQVR4Ae3dP3Ik1RnG4W+FgYxN"
+                                      onError={(e: any) => {
+                                        console.error('[Alumni Documents] Image load error:', {
+                                          src: e?.currentTarget?.src || e?.target?.src,
+                                          docUrl,
+                                          error: e?.message || 'Failed to load image',
+                                          fullError: e,
+                                          eventType: e?.type,
+                                          nativeEvent: e?.nativeEvent
+                                        });
+                                      }}
+                                    />
+                                  ) : (
+                                    <Button
+                                      type="link"
+                                      icon={<EyeOutlined />}
+                                      href={(() => {
+                                        let fullUrl = docUrl;
+                                        if (!docUrl.startsWith('http://') && !docUrl.startsWith('https://')) {
+                                          const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.replace('/api', '') || 'http://localhost:3000';
+                                          fullUrl = `${baseUrl}${docUrl.startsWith('/') ? docUrl : '/' + docUrl}`;
+                                        }
+                                        return `/api/proxy-image?url=${encodeURIComponent(fullUrl)}`;
+                                      })()}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                    >
+                                      View Document
+                                    </Button>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </Card>
+                      ))
+                    ) : typeof selectedRequest.documents === 'object' ? (
+                      // Handle object format (legacy or alternative format)
+                      Object.entries(selectedRequest.documents).map(([key, value]: [string, any]) => (
+                        <Card key={key} size="small" className="mb-3">
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <Text strong className="block mb-2 capitalize">
+                                {key.replace(/_/g, ' ')}
+                              </Text>
+                              {typeof value === 'string' && (
+                                <div className="flex items-center space-x-2">
+                                  {/* Check if this is a local file path (invalid) */}
+                                  {value.includes('file://') || value.includes('/Users/') || value.includes('/Library/') ? (
+                                    <div className="p-4 bg-yellow-50 border border-yellow-200 rounded">
+                                      <div className="flex items-start justify-between">
+                                        <div className="flex-1">
+                                          <Text type="warning" className="block mb-1">
+                                            <strong>⚠️ Invalid Document URL</strong>
+                                          </Text>
+                                          <Text type="secondary" className="text-sm mb-2">
+                                            This document was uploaded with a local file path and cannot be displayed. 
+                                            The user needs to re-upload this document through the mobile app.
+                                          </Text>
+                                          <Text type="secondary" className="text-xs font-mono bg-gray-100 p-2 rounded break-all">
+                                            {value.length > 100 ? `${value.substring(0, 100)}...` : value}
+                                          </Text>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ) : value.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
+                                    <Image
+                                      src={(() => {
+                                        let fullUrl = value;
+                                        if (!value.startsWith('http://') && !value.startsWith('https://')) {
+                                          const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.replace('/api', '') || 'http://localhost:3000';
+                                          fullUrl = `${baseUrl}${value.startsWith('/') ? value : '/' + value}`;
+                                        }
+                                        return `/api/proxy-image?url=${encodeURIComponent(fullUrl)}`;
+                                      })()}
+                                      alt={key}
+                                      width={200}
+                                      className="rounded"
+                                      preview={{
+                                        mask: 'Preview',
+                                        src: (() => {
+                                          let fullUrl = value;
+                                          if (!value.startsWith('http://') && !value.startsWith('https://')) {
+                                            const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.replace('/api', '') || 'http://localhost:3000';
+                                            fullUrl = `${baseUrl}${value.startsWith('/') ? value : '/' + value}`;
+                                          }
+                                          return `/api/proxy-image?url=${encodeURIComponent(fullUrl)}`;
+                                        })(),
+                                      }}
+                                      fallback="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMIAAADDCAYAAADQvc6UAAABRWlDQ1BJQ0MgUHJvZmlsZQAAKJFjYGASSSwoyGFhYGDIzSspCnJ3UoiIjFJgf8LAwSDCIMogwMCcmFxc4BgQ4ANUwgCjUcG3awyMIPqyLsis7PPOq3QdDFcvjV3jOD1boQVTPQrgSkktTgbSf4A4LbmgqISBgTEFyFYuLykAsTuAbJEioKOA7DkgdjqEvQHEToKwj4DVhAQ5A9k3gGyB5IxEoBmML4BsnSQk8XQkNtReEOBxcfXxUQg1Mjc0dyHgXNJBSWpFCYh2zi+oLMpMzyhRcASGUqqCZ16yno6CkYGRAQMDKMwhqj/fAIcloxgHQqxAjIHBEugw5sUIsSQpBobtQPdLciLEVJYzMPBHMDBsayhILEqEO4DxG0txmrERhM29nYGBddr//5/DGRjYNRkY/l7////39v///y4Dmn+LgeHANwDrkl1AuO+pmgAAADhlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAAqACAAQAAAABAAAAwqADAAQAAAABAAAAwwAAAAD9b/HnAAAHlklEQVR4Ae3dP3Ik1RnG4W+FgYxN"
+                                      onError={(e: any) => {
+                                        console.error('[Alumni Documents] Image load error:', {
+                                          src: e?.currentTarget?.src || e?.target?.src,
+                                          docUrl: value,
+                                          error: e?.message || 'Failed to load image',
+                                          fullError: e
+                                        });
+                                      }}
+                                    />
+                                  ) : (
+                                    <Button
+                                      type="link"
+                                      icon={<EyeOutlined />}
+                                      href={(() => {
+                                        let fullUrl = value;
+                                        if (!value.startsWith('http://') && !value.startsWith('https://')) {
+                                          const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.replace('/api', '') || 'http://localhost:3000';
+                                          fullUrl = `${baseUrl}${value.startsWith('/') ? value : '/' + value}`;
+                                        }
+                                        return `/api/proxy-image?url=${encodeURIComponent(fullUrl)}`;
+                                      })()}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                    >
+                                      View Document
+                                    </Button>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </Card>
+                      ))
+                    ) : null}
+                    {Array.isArray(selectedRequest.documents) && selectedRequest.documents.length === 0 && (
+                      <Empty description="No documents uploaded" />
+                    )}
                   </div>
                 ) : (
                   <Empty description="No documents available" />

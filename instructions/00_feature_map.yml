@@ -2,9 +2,10 @@
 name: UniCircle Feature Map
 description: >
   Functional blueprint for the UniCircle ecosystem.
-  UniCircle connects students, alumni, and professionals across universities.
-  It supports: student email onboarding, alumni manual onboarding, campus and cross-campus
+  UniCircle connects students, alumni, and teachers across universities.
+  It supports: student email onboarding, alumni/teacher manual onboarding, campus and cross-campus
   crush/match, Circles (programme, batch, alumni), social feed, jobs/careers,
+  research collaboration (teachers publish opportunities, students apply),
   marketplace for accommodation and used items, moderation, and monetization.
   This map is the source of truth for backend, mobile, and admin features.
 
@@ -18,6 +19,7 @@ core_domains:
   - circles_and_groups
   - social_feed
   - career_and_jobs
+  - research_collaboration
   - marketplace
   - moderation_and_reporting
   - notifications
@@ -28,7 +30,7 @@ core_domains:
 features:
 
   authentication:
-    goal: "Allow verified users to join with their institutional email OR alumni proof."
+    goal: "Allow verified users to join with their institutional email OR alumni/teacher proof."
     paths:
       student_flow:
         description: "Current students with active campus email."
@@ -47,15 +49,39 @@ features:
           - status set to pending_manual_review
           - admin approves within SLA (24h)
         result: "isVerified = true after admin approval"
+      teacher_flow_option1_university_email:
+        description: "Teachers with active university email (preferred, faster verification)."
+        steps:
+          - POST /auth/request-code (with university email)
+          - POST /auth/verify-code
+          - After verification, user selects "I'm a Teacher" during onboarding
+          - App calls PUT /me/profile-mode with profileMode=teacher and optional documents[]
+          - If documents provided, creates TeacherApproval for admin review
+          - If no documents, sets profileMode=teacher immediately (trusted university email)
+        result: "isVerified = true, profileMode = teacher, can publish research opportunities"
+      teacher_flow_option2_manual_registration:
+        description: "Teachers without university email or need manual verification."
+        steps:
+          - POST /auth/teacher-register with:
+              - fullName
+              - email (personal email)
+              - universityId
+              - department
+              - documents[] (faculty ID, appointment letter, university verification)
+          - status set to pending_manual_review
+          - admin approves within SLA (24h)
+        result: "isVerified = true after admin approval, can publish research opportunities"
     endpoints:
       - POST /auth/request-code
       - POST /auth/verify-code
       - POST /auth/alumni-register
+      - POST /auth/teacher-register
       - POST /auth/refresh
       - DELETE /auth/logout
     rules:
       - student_flow requires domain check
-      - alumni_flow requires at least one document
+      - alumni_flow requires at least one document (graduation proof)
+      - teacher_flow requires at least one document (faculty proof)
       - unapproved or pending users can read public content but cannot post, crush, or chat
     admin_review:
       sla_hours: 24
@@ -63,9 +89,12 @@ features:
         - GET /admin/alumni-requests
         - POST /admin/alumni-requests/:id/approve
         - POST /admin/alumni-requests/:id/reject
+        - GET /admin/teacher-requests
+        - POST /admin/teacher-requests/:id/approve
+        - POST /admin/teacher-requests/:id/reject
 
   user_profile:
-    goal: "Maintain a single identity that can evolve from student → alumni → professional."
+    goal: "Maintain a single identity that can evolve: student → alumni (one-way), student → teacher (with verification), alumni → teacher (with verification)."
     fields:
       - name
       - email
@@ -77,35 +106,83 @@ features:
       - avatarUrl
       - interests
       - allowCrossCampus
-      - profileMode            # student | alumni | professional
-      - currentStatus          # studying | looking_for_internship | looking_for_job | working
+      - profileMode            # student | alumni | teacher
+      - currentStatus          # studying | looking_for_internship | looking_for_job | working | teaching
       - headline               # professional tagline
       - experience             # list/json
       - skills                 # list/json
-      - registrationSource     # student_email | alumni_manual
+      - researchInterests      # list/json (for teachers)
+      - registrationSource     # student_email | alumni_manual | teacher_manual
       - verificationStatus     # pending | approved | rejected
-      - documents              # uploaded proofs for alumni_manual
+      - documents              # uploaded proofs for alumni_manual or teacher_manual
     actions:
       - GET /me
       - PUT /me
-      - PUT /me/profile-mode    # supports student → alumni transition
+      - PUT /me/profile-mode    # supports profile transitions with verification
       - DELETE /me
     transition_logic:
       student_to_alumni:
-        trigger: user graduates or wants to keep account
+        trigger: user graduates
         steps:
           - user opens Settings → Change profile type → Alumni
-          - app calls PUT /me/profile-mode with optional documents[]
-          - backend sets verificationStatus=pending if registrationSource=alumni_manual
+          - app shows warning: "This is a permanent change. You cannot switch back to student."
+          - user confirms and provides graduation proof (documents[])
+          - app calls PUT /me/profile-mode with documents[]
+          - backend sets verificationStatus=pending, creates AlumniApproval if needed
           - admin approves → user gets alumni features
-        notes:
-          - keep old data (crushes, posts, circles)
-          - new alumni can now join alumni circles and apply to jobs
-      alumni_to_professional:
-        trigger: user wants career/network features
+        rules:
+          - ONE-WAY: Cannot switch back to student
+          - Requires verification (graduation certificate, transcript, or ID card)
+          - Keep old data (crushes, posts, circles)
+          - Alumni can be professionals (no separate professional mode needed)
+      student_to_teacher:
+        trigger: user becomes faculty member (with or without university email)
         steps:
-          - PUT /me/profile-mode = professional
-          - unlocks Jobs posting and public Feed visibility
+          - user opens Settings → Change profile type → Teacher
+          - app shows warning: "Requires faculty verification. You can switch to alumni later if you leave teaching."
+          - user provides faculty proof (documents[]) and optionally updates universityId
+          - app calls PUT /me/profile-mode with documents[] and optional universityId
+          - if user has university email domain: immediate approval (trusted)
+          - if user has personal email: creates TeacherApproval for admin review
+          - admin approves → user gets teacher features (can publish research)
+        rules:
+          - Can use university email (OTP flow) OR manual registration
+          - Requires verification if using personal email
+          - University email domain = trusted, immediate approval
+          - Can switch to alumni later if leaving teaching
+          - Can change universityId when switching to teacher
+      alumni_to_teacher:
+        trigger: alumni becomes faculty member
+        steps:
+          - user opens Settings → Change profile type → Teacher
+          - user provides faculty proof (documents[]) and optionally updates universityId
+          - app calls PUT /me/profile-mode with documents[] and optional universityId
+          - if documents provided: creates TeacherApproval for admin review
+          - admin approves → user gets teacher features
+        rules:
+          - Requires verification (faculty ID, appointment letter, university verification)
+          - Can change universityId when switching to teacher
+          - Can switch back to alumni if leaving teaching
+      teacher_to_alumni:
+        trigger: teacher leaves teaching position
+        steps:
+          - user opens Settings → Change profile type → Alumni
+          - app calls PUT /me/profile-mode
+          - backend updates profileMode, keeps verificationStatus=approved
+        rules:
+          - No verification needed (already verified)
+          - Cannot switch back to student
+      teacher_change_university:
+        trigger: teacher moves to different university
+        steps:
+          - user opens Settings → Edit Profile → Update University
+          - app calls PUT /me with new universityId
+          - if new university email domain: backend updates universityId immediately
+          - if personal email: may require admin verification for new university
+        rules:
+          - Teachers can change universityId
+          - If using university email, domain must match new university
+          - Research opportunities are tied to universityId
 
   university_management:
     admin_only: true
@@ -183,19 +260,72 @@ features:
       - admin can hide posts
 
   career_and_jobs:
-    goal: "Students, alumni, and professionals can discover and apply to jobs."
+    goal: "Students, alumni, and teachers can discover and apply to jobs."
     features:
-      - POST /jobs (admins, verified employers, professional users)
+      - POST /jobs (admins, verified employers, alumni users)
       - GET /jobs?programme=MCSE
       - GET /jobs?universityId=...
       - POST /jobs/:id/apply
     roles:
       - student: view/apply
-      - alumni (approved): view/apply
-      - professional: view/apply/post
+      - alumni (approved): view/apply/post
+      - teacher: view/apply/post
     notes:
       - job module can later charge employers per posting
       - jobs can target specific universities/programmes
+      - alumni can be professionals (no separate professional mode)
+
+  research_collaboration:
+    goal: "Enable cross-university research collaboration. Teachers publish research opportunities, students browse and apply."
+    features:
+      - Teachers can publish research opportunities
+      - Students can browse research opportunities (same university and cross-university)
+      - Students can apply to research opportunities
+      - Teachers can review applications and accept/reject
+      - Cross-university research collaboration support
+    schema:
+      - id
+      - title
+      - description
+      - researchArea (e.g., AI, Biology, Economics)
+      - requirements (skills, prerequisites)
+      - duration (e.g., "6 months", "1 year")
+      - location (on-campus, remote, hybrid)
+      - compensation (stipend, credit, unpaid)
+      - teacherId (User with profileMode=teacher)
+      - universityId
+      - targetUniversities (array, for cross-university opportunities)
+      - targetProgrammes (array, optional)
+      - maxApplicants
+      - status (open | closed | filled)
+      - applications[] (ResearchApplication)
+      - createdAt
+      - updatedAt
+    endpoints:
+      - POST /research (teachers only)
+      - GET /research?universityId=...&researchArea=...&status=open
+      - GET /research/:id
+      - PUT /research/:id (teacher who created it)
+      - DELETE /research/:id (teacher who created it)
+      - POST /research/:id/apply (students only)
+      - GET /research/applications (teachers can see their opportunities' applications)
+      - POST /research/applications/:id/accept (teachers only)
+      - POST /research/applications/:id/reject (teachers only)
+    roles:
+      - student: browse, apply
+      - teacher: publish, manage, review applications
+      - alumni: browse (optional, can be enabled in settings)
+    cross_university:
+      - Teachers can publish opportunities open to students from other universities
+      - Students can filter by their university or "all universities"
+      - Admin can enable/disable cross-university research in settings
+    moderation:
+      - Admin can review and deactivate suspicious research opportunities
+      - Students can report inappropriate opportunities
+    notes:
+      - Research opportunities can be paid (stipend) or unpaid (credit/experience)
+      - Teachers can specify requirements (GPA, skills, year of study)
+      - Application includes: cover letter, CV/resume, transcript (optional)
 
   marketplace:
     goal: "Let students and alumni post accommodation, flat/roommate requests, and used items."
@@ -253,11 +383,16 @@ features:
     events:
       - account_verified
       - alumni_account_approved
+      - teacher_account_approved
       - new_match
       - weekly_reveal
       - circle_announcement
       - job_posting_matched
       - marketplace_listing_interested
+      - research_opportunity_published
+      - research_application_submitted
+      - research_application_accepted
+      - research_application_rejected
     scheduler:
       - cron "0 12 * * FRI" Asia/Dhaka
 
@@ -277,18 +412,23 @@ features:
       - CampusAdmin
       - Moderator
     dashboard:
-      - user counts (by profileMode, by verificationStatus)
+      - user counts (by profileMode: student, alumni, teacher, by verificationStatus)
       - active universities
       - crushes & matches
       - circles and feed engagement
       - jobs posted and applications
+      - research opportunities published and applications
       - marketplace listings (active, reported, featured)
       - pending alumni approvals
+      - pending teacher approvals
     config:
       - enable_cross_university_matching
+      - enable_cross_university_research
       - enable_circle_creation
       - enable_career_features
+      - enable_research_features
       - enable_marketplace
+      - profile_wise_features (student, alumni, teacher)
       - rate limits
       - notification templates
 

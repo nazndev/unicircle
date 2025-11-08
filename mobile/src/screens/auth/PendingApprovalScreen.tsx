@@ -21,6 +21,19 @@ export default function PendingApprovalScreen() {
       <Text style={styles.message}>
         Your alumni account is under review. We'll notify you within 24 hours once it's approved.
       </Text>
+      {user?.university && (
+        <View style={styles.infoContainer}>
+          <Text style={styles.infoLabel}>University:</Text>
+          <Text style={styles.infoValue}>
+            {user.university.name}
+            {user.university.country && (
+              <Text style={styles.countryText}>
+                {' '}({typeof user.university.country === 'object' ? user.university.country.name : user.university.country})
+              </Text>
+            )}
+          </Text>
+        </View>
+      )}
       <Text style={styles.status}>
         Status: {user?.verificationStatus || 'pending'}
       </Text>
@@ -52,6 +65,30 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#5C7AEA',
     fontWeight: '600',
+  },
+  infoContainer: {
+    marginTop: 20,
+    marginBottom: 20,
+    padding: 15,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    width: '100%',
+    maxWidth: 400,
+  },
+  infoLabel: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 5,
+  },
+  infoValue: {
+    fontSize: 16,
+    color: '#333',
+    fontWeight: '600',
+  },
+  countryText: {
+    fontSize: 14,
+    color: '#5C7AEA',
+    fontWeight: '400',
   },
 });
 

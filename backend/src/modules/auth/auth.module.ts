@@ -7,6 +7,7 @@ import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
 import { UsersModule } from '../users/users.module';
 import { MailModule } from '../mail/mail.module';
+import { UploadModule } from '../upload/upload.module';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { AdminGuard } from './guards/admin.guard';
 import { SuperAdminGuard } from './guards/super-admin.guard';
@@ -24,6 +25,7 @@ import { SuperAdminGuard } from './guards/super-admin.guard';
     }),
     UsersModule,
     MailModule,
+    UploadModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy, AdminGuard, SuperAdminGuard],

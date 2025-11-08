@@ -53,7 +53,28 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
       
       localStorage.setItem('admin_token', accessToken);
-      console.log('[AUTH STORE] Token stored in localStorage');
+      // Also set as cookie for API routes
+      if (typeof document !== 'undefined') {
+        // Set cookie with proper flags - remove Secure flag for localhost
+        const isSecure = window.location.protocol === 'https:';
+        const cookieString = `admin_token=${accessToken}; path=/; max-age=86400; SameSite=Lax${isSecure ? '; Secure' : ''}`;
+        document.cookie = cookieString;
+        console.log('[AUTH STORE] Cookie set:', { 
+          path: '/', 
+          maxAge: 86400,
+          secure: isSecure,
+          cookieString: cookieString.substring(0, 50) + '...'
+        });
+        
+        // Verify cookie was set
+        const cookies = document.cookie.split(';').map(c => c.trim());
+        const adminTokenCookie = cookies.find(c => c.startsWith('admin_token='));
+        console.log('[AUTH STORE] Cookie verification:', {
+          found: !!adminTokenCookie,
+          allCookies: cookies.map(c => c.split('=')[0])
+        });
+      }
+      console.log('[AUTH STORE] Token stored in localStorage and cookie');
       
       set({ user, isAuthenticated: true });
       console.log('[AUTH STORE] State updated:', { 
@@ -74,6 +95,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   logout: () => {
     localStorage.removeItem('admin_token');
+    // Clear cookie
+    if (typeof document !== 'undefined') {
+      document.cookie = 'admin_token=; path=/; max-age=0';
+    }
     set({ user: null, isAuthenticated: false });
   },
 
@@ -114,13 +139,31 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           set({ user: null, isAuthenticated: false });
         }
       } catch (error: any) {
+        // Handle network errors separately
+        if (error.code === 'ERR_NETWORK' || error.message === 'Network Error') {
+          console.error('[AUTH STORE] Network Error - Backend not reachable:', {
+            message: 'Cannot connect to backend server. Please ensure the backend is running on http://localhost:3000',
+            baseURL: error.config?.baseURL
+          });
+          // Don't clear auth state on network errors - backend might just be down temporarily
+          return;
+        }
+
         console.error('[AUTH STORE] checkAuth error:', {
           message: error.message,
           status: error.response?.status,
+          code: error.code,
           data: error.response?.data
         });
-        localStorage.removeItem('admin_token');
-        set({ user: null, isAuthenticated: false });
+        // Silently handle 401/404 - these are expected when token is invalid
+        if (error.response?.status === 401 || error.response?.status === 404) {
+          console.log('[AUTH STORE] Token invalid or expired, clearing auth state');
+          localStorage.removeItem('admin_token');
+          set({ user: null, isAuthenticated: false });
+        } else {
+          // Only log unexpected errors
+          console.warn('[AUTH STORE] Unexpected error during auth check:', error.message);
+        }
       }
     } else {
       console.log('[AUTH STORE] No token found, skipping checkAuth');

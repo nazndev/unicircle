@@ -10,13 +10,13 @@ export class JobsService {
       where: { id: userId },
     });
 
-    // Only professional users, verified alumni, or admins can post jobs
+    // Only verified alumni, teachers, or admins can post jobs
     if (!user || user.isBlocked) {
       throw new ForbiddenException('User not found or blocked');
     }
 
-    if (user.profileMode !== 'professional' && user.verificationStatus !== 'approved') {
-      throw new ForbiddenException('Only professional users or verified alumni can post jobs');
+    if (user.profileMode !== 'alumni' && user.profileMode !== 'teacher' && user.verificationStatus !== 'approved') {
+      throw new ForbiddenException('Only verified alumni or teachers can post jobs');
     }
 
     return this.prisma.job.create({

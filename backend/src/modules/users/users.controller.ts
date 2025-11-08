@@ -45,11 +45,23 @@ export class UsersController {
     return this.usersService.updateProfileMode(user.userId, dto);
   }
 
+  @Put('complete-onboarding')
+  @ApiOperation({ summary: 'Mark onboarding as completed' })
+  async completeOnboarding(@CurrentUser() user: any) {
+    return this.usersService.completeOnboarding(user.userId);
+  }
+
   @Delete()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Delete account (self-service)' })
   async deleteAccount(@CurrentUser() user: any) {
     return this.usersService.deleteAccount(user.userId);
+  }
+
+  @Get('features')
+  @ApiOperation({ summary: 'Get enabled features for current user profile mode' })
+  async getProfileFeatures(@CurrentUser() user: any) {
+    return this.usersService.getProfileFeatures(user.userId);
   }
 }
 

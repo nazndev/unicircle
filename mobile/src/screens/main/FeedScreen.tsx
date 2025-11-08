@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity } from 'react-native';
 import { useAuthStore } from '../../store/authStore';
 import apiClient from '../../api/client';
+import UserCard from '../../components/UserCard';
 
 export default function FeedScreen() {
   const { user } = useAuthStore();
@@ -33,7 +34,12 @@ export default function FeedScreen() {
         keyExtractor={(item: any) => item.id}
         renderItem={({ item }: any) => (
           <View style={styles.post}>
-            <Text style={styles.postAuthor}>{item.author?.name || 'Unknown'}</Text>
+            <UserCard
+              name={item.author?.name}
+              isVerified={item.author?.isVerified}
+              university={item.author?.university}
+              size="medium"
+            />
             <Text style={styles.postContent}>{item.content}</Text>
             <View style={styles.postActions}>
               <TouchableOpacity>

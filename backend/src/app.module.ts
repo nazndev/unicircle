@@ -20,6 +20,9 @@ import { WeeklyRevealModule } from './modules/weekly-reveal/weekly-reveal.module
 import { UploadModule } from './modules/upload/upload.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { AlumniModule } from './modules/alumni/alumni.module';
+import { ResearchModule } from './modules/research/research.module';
+import { CountryModule } from './modules/country/country.module';
+import { SettingsModule } from './modules/settings/settings.module';
 
 @Module({
   imports: [
@@ -50,6 +53,9 @@ import { AlumniModule } from './modules/alumni/alumni.module';
     UploadModule,
     ReportsModule,
     AlumniModule,
+    ResearchModule,
+    CountryModule,
+    SettingsModule,
   ],
 })
 export class AppModule {}

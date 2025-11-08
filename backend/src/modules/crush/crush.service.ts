@@ -16,7 +16,7 @@ export class CrushService {
       throw new BadRequestException('Cannot send crush to yourself');
     }
 
-    // Check if user is verified
+    // Check if user is verified and is a student
     const fromUser = await this.prisma.user.findUnique({
       where: { id: fromUserId },
       include: { university: true },
@@ -26,6 +26,11 @@ export class CrushService {
       throw new ForbiddenException('You must be verified to send crushes');
     }
 
+    // Crush feature is only available for students
+    if (fromUser.profileMode !== 'student') {
+      throw new ForbiddenException('Crush feature is only available for students');
+    }
+
     const toUser = await this.prisma.user.findUnique({
       where: { id: toUserId },
       include: { university: true },
@@ -33,6 +38,11 @@ export class CrushService {
 
     if (!toUser || toUser.verificationStatus !== 'approved' || toUser.isBlocked) {
       throw new BadRequestException('Target user not found or not verified');
+    }
+
+    // Target user must also be a student
+    if (toUser.profileMode !== 'student') {
+      throw new BadRequestException('You can only send crushes to students');
     }
 
     // Check cross-campus rules
@@ -129,7 +139,14 @@ export class CrushService {
               id: true,
               name: true,
               avatarUrl: true,
-              university: { select: { name: true } },
+              isVerified: true,
+              university: { 
+                select: { 
+                  id: true,
+                  name: true,
+                  country: true,
+                } 
+              },
             },
           },
         },
@@ -143,7 +160,14 @@ export class CrushService {
               id: true,
               name: true,
               avatarUrl: true,
-              university: { select: { name: true } },
+              isVerified: true,
+              university: { 
+                select: { 
+                  id: true,
+                  name: true,
+                  country: true,
+                } 
+              },
             },
           },
         },

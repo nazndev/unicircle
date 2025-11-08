@@ -16,6 +16,7 @@ import {
   Modal,
   Form,
   Input,
+  Select,
   Switch,
   Row,
   Col,
@@ -44,6 +45,8 @@ interface University {
   id: string;
   name: string;
   domain: string | null;
+  country: string | { id: string; name: string; code: string | null };
+  countryId?: string;
   active: boolean;
   allowCrossCampus: boolean;
   createdAt: string;
@@ -55,10 +58,30 @@ export default function UniversitiesPage() {
   const [showModal, setShowModal] = useState(false);
   const [editingUniversity, setEditingUniversity] = useState<University | null>(null);
   const [form] = Form.useForm();
+  const [availableCountries, setAvailableCountries] = useState<Array<{ id: string; name: string; code: string | null }>>([]);
 
   useEffect(() => {
     loadUniversities();
+    loadAvailableCountries();
   }, []);
+
+  const loadAvailableCountries = async () => {
+    try {
+      const response = await api.get('/country/active');
+      console.log('[UNIVERSITIES] Countries API Response:', response);
+      // Handle nested response structure: response.data.data.data or response.data.data
+      const data = response.data?.data?.data || response.data?.data || response.data || [];
+      console.log('[UNIVERSITIES] Extracted countries data:', data);
+      const countriesArray = Array.isArray(data) ? data : [];
+      console.log('[UNIVERSITIES] Countries array length:', countriesArray.length);
+      setAvailableCountries(countriesArray);
+      if (countriesArray.length === 0) {
+        console.warn('[UNIVERSITIES] No active countries found');
+      }
+    } catch (error) {
+      console.error('[UNIVERSITIES] Failed to load available countries:', error);
+    }
+  };
 
   const loadUniversities = async () => {
     setLoading(true);
@@ -76,11 +99,21 @@ export default function UniversitiesPage() {
 
   const handleSubmit = async (values: any) => {
     try {
+      // Trim all string values
+      const trimmedValues = {
+        ...values,
+        name: values.name?.trim(),
+        domain: values.domain?.trim(),
+        countryId: values.countryId,
+      };
+
+      console.log('[UNIVERSITIES] Submitting form values:', trimmedValues);
+
       if (editingUniversity) {
-        await api.put(`/admin/universities/${editingUniversity.id}`, values);
+        await api.put(`/admin/universities/${editingUniversity.id}`, trimmedValues);
         toast.success('University updated successfully');
       } else {
-        await api.post('/admin/universities', values);
+        await api.post('/admin/universities', trimmedValues);
         toast.success('University created successfully');
       }
       setShowModal(false);
@@ -88,15 +121,24 @@ export default function UniversitiesPage() {
       form.resetFields();
       loadUniversities();
     } catch (error: any) {
+      console.error('[UNIVERSITIES] Submit error:', error);
+      console.error('[UNIVERSITIES] Error response:', error.response?.data);
       toast.error(error.response?.data?.message || 'Failed to save university');
     }
   };
 
   const handleEdit = (university: University) => {
     setEditingUniversity(university);
+    // Extract countryId from country object if it's an object, otherwise use countryId field
+    const countryId = university.countryId || 
+      (typeof university.country === 'object' && university.country !== null 
+        ? university.country.id 
+        : '');
+    
     form.setFieldsValue({
       name: university.name,
       domain: university.domain || '',
+      countryId: countryId,
       active: university.active,
       allowCrossCampus: university.allowCrossCampus,
     });
@@ -148,6 +190,19 @@ export default function UniversitiesPage() {
       dataIndex: 'domain',
       key: 'domain',
       render: (domain) => domain || <Text type="secondary">N/A</Text>,
+    },
+    {
+      title: 'Country',
+      dataIndex: 'country',
+      key: 'country',
+      render: (country) => {
+        const countryName = typeof country === 'object' && country !== null ? country.name : country;
+        return (
+          <Tag color="blue" icon={<GlobalOutlined />}>
+            {countryName || 'N/A'}
+          </Tag>
+        );
+      },
     },
     {
       title: 'Status',
@@ -337,6 +392,7 @@ export default function UniversitiesPage() {
             form={form}
             layout="vertical"
             onFinish={handleSubmit}
+            validateTrigger="onSubmit"
             initialValues={{
               active: true,
               allowCrossCampus: false,
@@ -353,14 +409,50 @@ export default function UniversitiesPage() {
             <Form.Item
               name="domain"
               label="Email Domain"
+              validateTrigger="onSubmit"
+              normalize={(value) => value?.trim()}
               rules={[
-                { type: 'email', message: 'Please enter a valid domain' },
+                { 
+                  required: true,
+                  message: 'Email domain is required for university validation' 
+                },
+                {
+                  pattern: /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$/,
+                  message: 'Please enter a valid domain (e.g., example.edu, university.com)',
+                },
               ]}
+              help="This domain will be used to validate student emails (e.g., student@example.edu)"
             >
               <Input
                 placeholder="example.edu"
                 size="large"
                 prefix={<GlobalOutlined className="text-gray-400" />}
+                allowClear
+              />
+            </Form.Item>
+
+            <Form.Item
+              name="countryId"
+              label="Country"
+              rules={[{ required: true, message: 'Please select country' }]}
+              help={
+                availableCountries.length === 0
+                  ? 'No active countries available. Please activate countries in the Countries page first.'
+                  : 'Only active countries are shown. Manage countries in the Countries page.'
+              }
+            >
+              <Select
+                placeholder="Select country"
+                size="large"
+                showSearch
+                filterOption={(input: string, option: any) =>
+                  (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                }
+                options={availableCountries.map((country) => ({
+                  label: country.name,
+                  value: country.id,
+                }))}
+                disabled={availableCountries.length === 0}
               />
             </Form.Item>
 

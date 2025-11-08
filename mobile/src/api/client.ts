@@ -43,10 +43,13 @@ apiClient.interceptors.response.use(
           return apiClient.request(error.config);
         } catch (refreshError) {
           // Refresh failed, clear tokens
+          // Don't log this as an error - it's expected if tokens are expired
           await SecureStore.deleteItemAsync('accessToken');
           await SecureStore.deleteItemAsync('refreshToken');
         }
       }
+      // If no refresh token or refresh failed, let the error propagate
+      // but don't log it as an error - it's expected behavior
     }
     return Promise.reject(error);
   }

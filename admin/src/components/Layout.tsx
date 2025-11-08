@@ -18,6 +18,7 @@ import {
   MenuUnfoldOutlined,
   BellOutlined,
   SearchOutlined,
+  GlobalOutlined,
 } from '@ant-design/icons';
 import { useState } from 'react';
 import { useAuthStore } from '@/store/authStore';
@@ -51,9 +52,21 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       roles: ['super_admin', 'admin'],
     },
     {
+      key: '/countries',
+      icon: <GlobalOutlined />,
+      label: 'Countries',
+      roles: ['super_admin'],
+    },
+    {
       key: '/universities',
       icon: <BankOutlined />,
       label: 'Universities',
+      roles: ['super_admin'],
+    },
+    {
+      key: '/university-requests',
+      icon: <FileTextOutlined />,
+      label: 'University Requests',
       roles: ['super_admin'],
     },
     {
@@ -73,6 +86,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       icon: <FlagOutlined />,
       label: 'Reports',
       roles: ['super_admin', 'admin', 'moderator'],
+    },
+    {
+      key: '/audit-logs',
+      icon: <FileTextOutlined />,
+      label: 'Audit Logs',
+      roles: ['super_admin'],
     },
     {
       key: '/settings',
@@ -118,8 +137,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     },
   ];
 
+  const sidebarWidth = collapsed ? 80 : 280;
+
   return (
-    <AntLayout className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50" style={{ display: 'flex', position: 'relative' }}>
+      {/* Fixed Sidebar */}
       <Sider
         trigger={null}
         collapsible
@@ -127,16 +149,30 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         width={280}
         collapsedWidth={80}
         theme="dark"
-        className="!fixed left-0 top-0 bottom-0 h-screen shadow-xl z-10 transition-all duration-300"
         style={{
+          position: 'fixed',
+          left: 0,
+          top: 0,
+          bottom: 0,
+          height: '100vh',
           background: 'linear-gradient(180deg, #2358d6 0%, #1e4db8 100%)',
+          zIndex: 100,
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
         }}
       >
-        {/* Sidebar Header */}
-        <div className="h-20 flex items-center justify-center px-4 border-b transition-all duration-300" style={{ borderColor: 'rgba(35, 88, 214, 0.3)', backgroundColor: 'rgba(35, 88, 214, 0.2)' }}>
+        {/* Sidebar Header - Logo and Branding - Aligned with navbar (64px) */}
+        <div 
+          className="flex-shrink-0 px-4 flex items-center"
+          style={{
+            height: '64px',
+            borderBottom: '1px solid rgba(255, 255, 255, 0.15)',
+          }}
+        >
           {!collapsed ? (
-            <div className="flex items-center space-x-4 w-full">
-              <div className="relative h-12 w-12 rounded-xl overflow-hidden flex-shrink-0 bg-white shadow-lg flex items-center justify-center p-1.5">
+            <div className="flex items-center space-x-3">
+              <div className="relative h-12 w-12 rounded-xl overflow-hidden flex-shrink-0 bg-white shadow-lg flex items-center justify-center p-2">
                 <Image 
                   src="/icon.png" 
                   alt="UniCircle" 
@@ -152,21 +188,31 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               </div>
             </div>
           ) : (
-            <div className="relative h-12 w-12 rounded-xl overflow-hidden bg-white shadow-lg flex items-center justify-center p-1.5 transition-transform duration-300">
-              <Image 
-                src="/icon.png" 
-                alt="UniCircle" 
-                width={40}
-                height={40}
-                className="object-contain"
-                unoptimized
-              />
+            <div className="flex items-center justify-center">
+              <div className="relative h-12 w-12 rounded-xl overflow-hidden bg-white shadow-lg flex items-center justify-center p-2">
+                <Image 
+                  src="/icon.png" 
+                  alt="UniCircle" 
+                  width={40}
+                  height={40}
+                  className="object-contain"
+                  unoptimized
+                />
+              </div>
             </div>
           )}
         </div>
 
         {/* Navigation Menu */}
-        <div className="flex-1 overflow-y-auto py-4 px-2">
+        <div 
+          className="flex-1 overflow-y-auto px-2" 
+          style={{ 
+            minHeight: 0, 
+            paddingTop: '1rem', 
+            paddingBottom: '1rem',
+            width: '100%',
+          }}
+        >
           <Menu
             theme="dark"
             mode="inline"
@@ -182,12 +228,32 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </div>
       </Sider>
 
-      {/* Main Layout */}
-      <AntLayout className={`transition-all duration-300 ease-in-out ${collapsed ? 'ml-[80px]' : 'ml-[280px]'}`}>
-        {/* Top Header */}
+      {/* Main Content Area - Offset by sidebar width */}
+      <div 
+        style={{ 
+          marginLeft: `${sidebarWidth}px`,
+          width: `calc(100% - ${sidebarWidth}px)`,
+          minHeight: '100vh',
+          display: 'flex',
+          flexDirection: 'column',
+          transition: 'margin-left 0.3s ease, width 0.3s ease',
+        }}
+      >
+        {/* Fixed Header */}
         <Header 
-          className="bg-white shadow-sm border-b border-gray-200 h-16 flex items-center justify-between sticky top-0 z-10"
-          style={{ padding: '0 24px' }}
+          style={{
+            position: 'sticky',
+            top: 0,
+            zIndex: 50,
+            height: '64px',
+            padding: '0 24px',
+            background: '#ffffff',
+            borderBottom: '1px solid #e5e7eb',
+            boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
         >
           <div className="flex items-center space-x-4 flex-1">
             <Button
@@ -198,7 +264,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               style={{ fontSize: '18px', width: '40px', height: '40px' }}
               title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             />
-            <div className="hidden md:block flex-1">
+            <div className="hidden lg:block flex-1">
               <Text className="text-gray-400 text-sm">Welcome back,</Text>
               <Text className="text-gray-900 font-semibold ml-2">
                 {user?.name || user?.email?.split('@')[0] || 'Admin'}
@@ -247,18 +313,32 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </Space>
         </Header>
 
-        {/* Main Content */}
-        <Content className="bg-gray-50 min-h-[calc(100vh-112px)]">
-          <div className="p-6">
-            <div className="max-w-7xl mx-auto">
+        {/* Scrollable Content Area */}
+        <Content 
+          style={{
+            flex: 1,
+            overflow: 'auto',
+            background: '#f9fafb',
+            minHeight: 0,
+          }}
+        >
+          <div style={{ padding: '24px' }}>
+            <div style={{ maxWidth: '1280px', margin: '0 auto' }}>
               {children}
             </div>
           </div>
         </Content>
 
-        {/* Footer */}
-        <Footer className="bg-white border-t border-gray-200 px-6 py-4">
-          <div className="max-w-7xl mx-auto">
+        {/* Fixed Footer */}
+        <Footer 
+          style={{
+            background: '#ffffff',
+            borderTop: '1px solid #e5e7eb',
+            padding: '16px 24px',
+            marginTop: 'auto',
+          }}
+        >
+          <div style={{ maxWidth: '1280px', margin: '0 auto' }}>
             <div className="flex flex-col md:flex-row items-center justify-between space-y-2 md:space-y-0">
               <div className="flex items-center space-x-4">
                 <Text type="secondary" className="text-sm">
@@ -277,7 +357,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         </Footer>
-      </AntLayout>
-    </AntLayout>
+      </div>
+    </div>
   );
 }

@@ -7,71 +7,126 @@ generator client {
   provider = "prisma-client-js"
 }
 
+model Country {
+  id                 String              @id @default(uuid())
+  name               String              @unique
+  code               String?             @unique // ISO 3166-1 alpha-2 code (e.g., "US", "BD", "GB")
+  active             Boolean             @default(false) // Countries are inactive by default
+  universities       University[]
+  universityRequests UniversityRequest[]
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @default(now()) @updatedAt
+
+  @@index([active])
+  @@index([name])
+}
+
 model University {
-  id        String  @id @default(uuid())
-  name      String
-  domain    String? @unique
-  active    Boolean @default(true)
-  allowCrossCampus Boolean @default(false)
-  users     User[]
-  createdAt DateTime @default(now())
+  id                    String                @id @default(uuid())
+  name                  String
+  domain                String?               @unique
+  countryId             String
+  country               Country               @relation(fields: [countryId], references: [id])
+  active                Boolean               @default(true)
+  allowCrossCampus      Boolean               @default(false)
+  users                 User[]
+  researchOpportunities ResearchOpportunity[]
+  createdAt             DateTime              @default(now())
+
+  @@index([countryId])
+}
+
+model UniversityRequest {
+  id             String    @id @default(uuid())
+  universityName String
+  countryId      String?
+  country        Country?  @relation(fields: [countryId], references: [id])
+  studentEmail   String
+  domain         String // Extracted from studentEmail
+  status         String    @default("pending") // pending | approved | rejected
+  requestedBy    String? // User ID if user is logged in
+  reviewedBy     String? // Admin ID
+  reviewedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @default(now()) @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([countryId])
 }
 
 model User {
-  id                String   @id @default(uuid())
-  name              String?
-  email             String   @unique
-  passwordHash      String?
-  universityId      String?
-  university        University? @relation(fields: [universityId], references: [id])
-  department        String?
-  programme         String?
-  semester          String?
-  gender            String?
-  avatarUrl         String?
-  registrationSource String  @default("student_email") // student_email | alumni_manual
-  verificationStatus String  @default("pending")        // pending | approved | rejected
-  documents         Json?    // uploaded alumni proofs
-  isVerified        Boolean  @default(false)
-  isBlocked         Boolean  @default(false)
-  allowCrossCampus  Boolean  @default(false)
-  profileMode       String   @default("student") // student | alumni | professional
-  role              String   @default("user") // user | admin | super_admin
-  currentStatus     String?
-  headline          String?
-  experience        Json?
-  skills            Json?
-  createdAt         DateTime @default(now())
-  crushesSent       Crush[]  @relation("CrushSender")
-  crushesRecv       Crush[]  @relation("CrushReceiver")
-  matchesA          Match[]  @relation("MatchA")
-  matchesB          Match[]  @relation("MatchB")
-  reportsFiled      Report[] @relation("ReportBy")
-  reportsOn         Report[] @relation("ReportOn")
-  groupMembers      GroupMember[]
-  groupsCreated     Group[]
-  posts             Post[]
-  jobsOwned         Job[]
-  jobApplications   JobApplication[]
-  marketplaceListings MarketplaceListing[]
-  transactions      Transaction[]
-  chatMessages      ChatMessage[]
-  groupMessages     GroupMessage[]
-  postComments      PostComment[]
-  postLikes         PostLike[]
-  alumniApprovals   AlumniApproval[]
-  emailVerifications EmailVerification[]
+  id                    String                @id @default(uuid())
+  name                  String?
+  email                 String                @unique
+  passwordHash          String?
+  universityId          String?
+  university            University?           @relation(fields: [universityId], references: [id])
+  department            String?
+  programme             String?
+  semester              String?
+  gender                String?
+  avatarUrl             String?
+  registrationSource    String                @default("student_email") // student_email | alumni_manual | teacher_manual
+  verificationStatus    String                @default("pending") // pending | approved | rejected
+  documents             Json? // uploaded alumni proofs
+  isVerified            Boolean               @default(false)
+  isBlocked             Boolean               @default(false)
+  allowCrossCampus      Boolean               @default(false)
+  profileMode           String                @default("student") // student | alumni | teacher
+  role                  String                @default("user") // user | admin | super_admin
+  onboardingCompleted   Boolean               @default(false)
+  currentStatus         String?
+  headline              String?
+  experience            Json?
+  skills                Json?
+  researchInterests     Json? // For teachers: research areas/interests
+  createdAt             DateTime              @default(now())
+  crushesSent           Crush[]               @relation("CrushSender")
+  crushesRecv           Crush[]               @relation("CrushReceiver")
+  matchesA              Match[]               @relation("MatchA")
+  matchesB              Match[]               @relation("MatchB")
+  reportsFiled          Report[]              @relation("ReportBy")
+  reportsOn             Report[]              @relation("ReportOn")
+  groupMembers          GroupMember[]
+  groupsCreated         Group[]
+  posts                 Post[]
+  jobsOwned             Job[]
+  jobApplications       JobApplication[]
+  marketplaceListings   MarketplaceListing[]
+  transactions          Transaction[]
+  chatMessages          ChatMessage[]
+  groupMessages         GroupMessage[]
+  postComments          PostComment[]
+  postLikes             PostLike[]
+  alumniApprovals       AlumniApproval[]
+  teacherApprovals      TeacherApproval[]
+  emailVerifications    EmailVerification[]
+  devices               Device[]
+  researchOpportunities ResearchOpportunity[] // Teachers publish research
+  researchApplications  ResearchApplication[] // Students apply
 }
 
 model AlumniApproval {
-  id          String   @id @default(uuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id])
-  documents   Json?
-  status      String   @default("pending") // pending | approved | rejected
-  reviewedBy  String?
-  reviewedAt  DateTime?
-  createdAt   DateTime @default(now())
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id])
+  documents  Json?
+  status     String    @default("pending") // pending | approved | rejected
+  reviewedBy String?
+  reviewedAt DateTime?
+  createdAt  DateTime  @default(now())
+}
+
+model TeacherApproval {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id])
+  documents  Json? // Faculty ID, appointment letter, university verification
+  status     String    @default("pending") // pending | approved | rejected
+  reviewedBy String?
+  reviewedAt DateTime?
+  createdAt  DateTime  @default(now())
 }
 
 model EmailVerification {
@@ -85,13 +140,13 @@ model EmailVerification {
 }
 
 model Crush {
-  id          String   @id @default(uuid())
-  fromUserId  String
-  toUserId    String
-  fromUser    User     @relation("CrushSender", fields: [fromUserId], references: [id])
-  toUser      User     @relation("CrushReceiver", fields: [toUserId], references: [id])
-  status      String   @default("pending") // pending | matched | hidden
-  createdAt   DateTime @default(now())
+  id         String   @id @default(uuid())
+  fromUserId String
+  toUserId   String
+  fromUser   User     @relation("CrushSender", fields: [fromUserId], references: [id])
+  toUser     User     @relation("CrushReceiver", fields: [toUserId], references: [id])
+  status     String   @default("pending") // pending | matched | hidden
+  createdAt  DateTime @default(now())
 
   @@unique([fromUserId, toUserId])
   @@index([fromUserId])
@@ -99,12 +154,12 @@ model Crush {
 }
 
 model Match {
-  id        String   @id @default(uuid())
+  id        String        @id @default(uuid())
   userAId   String
   userBId   String
-  userA     User     @relation("MatchA", fields: [userAId], references: [id])
-  userB     User     @relation("MatchB", fields: [userBId], references: [id])
-  createdAt DateTime @default(now())
+  userA     User          @relation("MatchA", fields: [userAId], references: [id])
+  userB     User          @relation("MatchB", fields: [userBId], references: [id])
+  createdAt DateTime      @default(now())
   messages  ChatMessage[]
 
   @@unique([userAId, userBId])
@@ -126,27 +181,27 @@ model ChatMessage {
 }
 
 model Group {
-  id            String   @id @default(uuid())
-  title         String
-  description   String?
-  universityId  String?
-  programme     String?
-  visibility    String   @default("university") // university | programme | public
-  createdById   String
-  createdBy     User     @relation(fields: [createdById], references: [id])
-  createdAt     DateTime @default(now())
-  members       GroupMember[]
-  messages      GroupMessage[]
+  id           String         @id @default(uuid())
+  title        String
+  description  String?
+  universityId String?
+  programme    String?
+  visibility   String         @default("university") // university | programme | public
+  createdById  String
+  createdBy    User           @relation(fields: [createdById], references: [id])
+  createdAt    DateTime       @default(now())
+  members      GroupMember[]
+  messages     GroupMessage[]
 }
 
 model GroupMember {
-  id        String   @id @default(uuid())
-  groupId   String
-  group     Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  userId    String
-  user      User     @relation(fields: [userId], references: [id])
-  role      String   @default("member")
-  joinedAt  DateTime @default(now())
+  id       String   @id @default(uuid())
+  groupId  String
+  group    Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User     @relation(fields: [userId], references: [id])
+  role     String   @default("member")
+  joinedAt DateTime @default(now())
 
   @@unique([groupId, userId])
   @@index([groupId])
@@ -167,16 +222,16 @@ model GroupMessage {
 }
 
 model Post {
-  id          String   @id @default(uuid())
-  authorId    String
-  author      User     @relation(fields: [authorId], references: [id])
-  content     String
-  mediaUrl    String?
-  visibility  String   @default("university")
-  isHidden    Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  comments    PostComment[]
-  likes       PostLike[]
+  id         String        @id @default(uuid())
+  authorId   String
+  author     User          @relation(fields: [authorId], references: [id])
+  content    String
+  mediaUrl   String?
+  visibility String        @default("university")
+  isHidden   Boolean       @default(false)
+  createdAt  DateTime      @default(now())
+  comments   PostComment[]
+  likes      PostLike[]
 
   @@index([authorId])
   @@index([createdAt])
@@ -208,19 +263,19 @@ model PostLike {
 }
 
 model Job {
-  id              String   @id @default(uuid())
-  title           String
-  description     String
-  employmentType  String?
-  location        String?
-  ownerUserId     String
-  ownerUser       User     @relation(fields: [ownerUserId], references: [id])
+  id                 String           @id @default(uuid())
+  title              String
+  description        String
+  employmentType     String?
+  location           String?
+  ownerUserId        String
+  ownerUser          User             @relation(fields: [ownerUserId], references: [id])
   targetUniversityId String?
-  targetProgramme String?
-  isActive        Boolean  @default(true)
-  isFeatured      Boolean  @default(false)
-  createdAt       DateTime @default(now())
-  applications    JobApplication[]
+  targetProgramme    String?
+  isActive           Boolean          @default(true)
+  isFeatured         Boolean          @default(false)
+  createdAt          DateTime         @default(now())
+  applications       JobApplication[]
 
   @@index([ownerUserId])
   @@index([isActive])
@@ -244,8 +299,8 @@ model JobApplication {
 
 model MarketplaceListing {
   id           String   @id @default(uuid())
-  type         String   // rent | sale
-  category     String   // accommodation | electronics | books | furniture | other
+  type         String // rent | sale
+  category     String // accommodation | electronics | books | furniture | other
   title        String
   description  String
   price        Float?
@@ -269,7 +324,7 @@ model Transaction {
   id        String   @id @default(uuid())
   userId    String
   user      User     @relation(fields: [userId], references: [id])
-  context   String   // marketplace | job | premium
+  context   String // marketplace | job | premium
   reference String
   amount    Float
   status    String   @default("pending") // pending | paid | failed
@@ -297,24 +352,98 @@ model Report {
 }
 
 model AuditLog {
-  id          String   @id @default(uuid())
-  actorId     String?
-  action      String
-  entityType  String?
-  entityId    String?
-  metadata    Json?
-  createdAt   DateTime @default(now())
+  id         String   @id @default(uuid())
+  actorId    String?
+  action     String
+  entityType String?
+  entityId   String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
 
   @@index([actorId])
   @@index([createdAt])
 }
 
-model Settings {
-  id                          String   @id @default("platform")
-  enableCrossUniversityMatching Boolean @default(false)
-  enableMarketplace           Boolean @default(true)
-  enableCareerFeatures        Boolean @default(true)
-  reportNotificationEmail     String?
-  updatedAt                   DateTime @default(now()) @updatedAt
+model Device {
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceId     String // Unique device identifier (e.g., from expo-application)
+  deviceName   String? // Device name/model
+  platform     String // ios | android
+  fcmToken     String? // Firebase Cloud Messaging token for push notifications
+  isActive     Boolean  @default(true)
+  lastActiveAt DateTime @default(now()) @updatedAt
+  createdAt    DateTime @default(now())
+
+  @@unique([userId, deviceId])
+  @@index([userId])
+  @@index([deviceId])
 }
 
+model ResearchOpportunity {
+  id                 String                @id @default(uuid())
+  title              String
+  description        String
+  researchArea       String // e.g., AI, Biology, Economics
+  requirements       Json? // { skills: [], prerequisites: [], gpa: number, yearOfStudy: number }
+  duration           String? // e.g., "6 months", "1 year"
+  location           String // on-campus | remote | hybrid
+  compensation       String? // stipend amount, "credit", "unpaid"
+  teacherId          String
+  teacher            User                  @relation(fields: [teacherId], references: [id])
+  universityId       String
+  university         University            @relation(fields: [universityId], references: [id])
+  targetUniversities String[]              @default([]) // For cross-university opportunities
+  targetProgrammes   String[]              @default([]) // Optional: specific programmes
+  maxApplicants      Int?
+  status             String                @default("open") // open | closed | filled
+  applications       ResearchApplication[]
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @default(now()) @updatedAt
+
+  @@index([teacherId])
+  @@index([universityId])
+  @@index([status])
+  @@index([researchArea])
+}
+
+model ResearchApplication {
+  id            String              @id @default(uuid())
+  opportunityId String
+  opportunity   ResearchOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  studentId     String
+  student       User                @relation(fields: [studentId], references: [id])
+  coverLetter   String?
+  cvUrl         String?
+  transcriptUrl String?
+  status        String              @default("pending") // pending | accepted | rejected
+  reviewedAt    DateTime?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @default(now()) @updatedAt
+
+  @@unique([opportunityId, studentId]) // One application per student per opportunity
+  @@index([studentId])
+  @@index([opportunityId])
+  @@index([status])
+}
+
+model Settings {
+  id                            String   @id @default("platform")
+  enableCrossUniversityMatching Boolean  @default(false)
+  enableCrossUniversityResearch Boolean  @default(true)
+  enableMarketplace             Boolean  @default(true)
+  enableCareerFeatures          Boolean  @default(true)
+  enableResearchFeatures        Boolean  @default(true)
+  reportNotificationEmail       String?
+  // Account type availability for onboarding
+  enableStudentRegistration     Boolean  @default(true)
+  enableAlumniRegistration      Boolean  @default(true)
+  enableTeacherRegistration     Boolean  @default(true)
+  // Note: Allowed countries are now managed via Country.active flag
+  // Profile-wise feature flags
+  studentFeatures               Json? // { marketplace: boolean, career: boolean, crush: boolean, circles: boolean, feed: boolean, research: boolean }
+  alumniFeatures                Json? // { marketplace: boolean, career: boolean, circles: boolean, feed: boolean, research: boolean }
+  teacherFeatures               Json? // { marketplace: boolean, career: boolean, circles: boolean, feed: boolean, research: boolean }
+  updatedAt                     DateTime @default(now()) @updatedAt
+}

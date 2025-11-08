@@ -9,7 +9,7 @@
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#5C7AEA"
+      "backgroundColor": "#2358D6"
     },
     "assetBundlePatterns": [
       "**/*"
@@ -25,7 +25,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#5C7AEA"
+        "backgroundColor": "#2358D6"
       },
       "package": "com.unicircle.app",
       "permissions": [
@@ -40,11 +40,11 @@
     "plugins": [
       "expo-secure-store",
       "expo-notifications",
-      "expo-image-picker"
+      "expo-image-picker",
+      "expo-font"
     ],
     "extra": {
-      "apiBaseUrl": "https://api.unicircle.pro"
+      "apiBaseUrl": "http://localhost:3000/api"
     }
   }
 }
-

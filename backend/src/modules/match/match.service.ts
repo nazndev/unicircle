@@ -44,7 +44,14 @@ export class MatchService {
             id: true,
             name: true,
             avatarUrl: true,
-            university: { select: { name: true } },
+            isVerified: true,
+            university: { 
+              select: { 
+                id: true,
+                name: true,
+                country: true,
+              } 
+            },
           },
         },
         userB: {
@@ -52,7 +59,14 @@ export class MatchService {
             id: true,
             name: true,
             avatarUrl: true,
-            university: { select: { name: true } },
+            isVerified: true,
+            university: { 
+              select: { 
+                id: true,
+                name: true,
+                country: true,
+              } 
+            },
           },
         },
         messages: {

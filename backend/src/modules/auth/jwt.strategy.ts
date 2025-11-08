@@ -20,13 +20,40 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   async validate(payload: any) {
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
+      include: {
+        university: {
+          include: {
+            country: {
+              select: {
+                id: true,
+                name: true,
+                active: true,
+              },
+            },
+          },
+        },
+      },
     });
 
     if (!user || user.isBlocked) {
       throw new UnauthorizedException();
     }
 
-    return { userId: user.id, email: user.email, profileMode: user.profileMode };
+    // Check if user's country is active
+    if (user.university?.country && !user.university.country.active) {
+      throw new UnauthorizedException({
+        message: 'Your country has been deactivated. Please contact support for assistance.',
+        code: 'COUNTRY_INACTIVE',
+        country: user.university.country.name,
+      });
+    }
+
+    return { 
+      userId: user.id, 
+      email: user.email, 
+      profileMode: user.profileMode,
+      role: user.role, // Include role for admin access checks
+    };
   }
 }
 
