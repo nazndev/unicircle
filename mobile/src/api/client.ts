@@ -4,7 +4,9 @@ import Constants from 'expo-constants';
 import { generateRequestSignature, isRequestSigningEnabled } from '../utils/signature';
 
 const API_BASE_URL = Constants.expoConfig?.extra?.apiBaseUrl || 'http://localhost:3000/api';
-const MOBILE_API_KEY = Constants.expoConfig?.extra?.mobileApiKey || 'b55371dcdf9faf4235f83cfe385ad47c';
+// API key should come from environment variables (app.config.js or .env)
+// Never hardcode secrets in source code
+const MOBILE_API_KEY = Constants.expoConfig?.extra?.mobileApiKey || process.env.EXPO_PUBLIC_MOBILE_API_KEY || '';
 // IMPORTANT: API Secret should NOT be in the app bundle in production
 // For request signing, we need a way to get the secret securely
 // Options: 1) Use a proxy server, 2) Use certificate pinning + server-side secret derivation

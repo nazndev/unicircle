@@ -45,8 +45,7 @@
       "expo-font"
     ],
     "extra": {
-      "apiBaseUrl": "http://localhost:3000/api",
-      "mobileApiKey": "b55371dcdf9faf4235f83cfe385ad47c"
+      "apiBaseUrl": "http://localhost:3000/api"
     }
   }
 }
