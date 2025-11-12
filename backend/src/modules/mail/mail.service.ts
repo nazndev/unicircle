@@ -142,6 +142,99 @@ export class MailService {
     return this.sendInstitutionRequestNotification(email, institutionName, 'university', approved);
   }
 
+  async sendVendorApplicationNotification(email: string, businessName: string) {
+    const from = this.configService.get<string>('SMTP_FROM', 'UniCircle <noreply@unicircle.app>');
+    await this.transporter.sendMail({
+      from,
+      to: email,
+      subject: 'Vendor Application Received - UniCircle',
+      html: `
+        <h2>Vendor Application Received</h2>
+        <p>Thank you for applying to become a vendor on UniCircle!</p>
+        <p>Your application for <strong>${businessName}</strong> has been received and is under review.</p>
+        <p>Our admin team will review your application within 24 hours. You will receive an email notification once a decision has been made.</p>
+        <p>Best regards,<br>The UniCircle Team</p>
+      `,
+    });
+  }
+
+  async sendVendorApprovalNotification(email: string, businessName: string, approved: boolean) {
+    const from = this.configService.get<string>('SMTP_FROM', 'UniCircle <noreply@unicircle.app>');
+    if (approved) {
+      await this.transporter.sendMail({
+        from,
+        to: email,
+        subject: 'Vendor Application Approved - UniCircle',
+        html: `
+          <h2>Congratulations!</h2>
+          <p>Your vendor application for <strong>${businessName}</strong> has been approved!</p>
+          <p>You can now:</p>
+          <ul>
+            <li>Add your business locations</li>
+            <li>Create product and service listings</li>
+            <li>Run campaigns to reach students</li>
+            <li>Start receiving orders</li>
+          </ul>
+          <p>Log in to your vendor dashboard to get started.</p>
+          <p>Best regards,<br>The UniCircle Team</p>
+        `,
+      });
+    } else {
+      await this.transporter.sendMail({
+        from,
+        to: email,
+        subject: 'Vendor Application Update - UniCircle',
+        html: `
+          <h2>Vendor Application Update</h2>
+          <p>Thank you for your interest in becoming a vendor on UniCircle.</p>
+          <p>Unfortunately, we are unable to approve your application for <strong>${businessName}</strong> at this time.</p>
+          <p>If you have questions, please contact our support team.</p>
+          <p>Best regards,<br>The UniCircle Team</p>
+        `,
+      });
+    }
+  }
+
+  async sendOrderNotification(email: string, orderId: string, status: string, orderDetails?: any) {
+    const from = this.configService.get<string>('SMTP_FROM', 'UniCircle <noreply@unicircle.app>');
+    const statusMessages: Record<string, { subject: string; message: string }> = {
+      created: {
+        subject: 'Order Created - UniCircle',
+        message: 'Your order has been created and is awaiting vendor confirmation.',
+      },
+      confirmed: {
+        subject: 'Order Confirmed - UniCircle',
+        message: 'Your order has been confirmed by the vendor and is being prepared.',
+      },
+      fulfilled: {
+        subject: 'Order Fulfilled - UniCircle',
+        message: 'Your order has been fulfilled! Thank you for your purchase.',
+      },
+      cancelled: {
+        subject: 'Order Cancelled - UniCircle',
+        message: 'Your order has been cancelled.',
+      },
+    };
+
+    const statusInfo = statusMessages[status] || {
+      subject: 'Order Update - UniCircle',
+      message: `Your order status has been updated to: ${status}`,
+    };
+
+    await this.transporter.sendMail({
+      from,
+      to: email,
+      subject: statusInfo.subject,
+      html: `
+        <h2>Order Update</h2>
+        <p>${statusInfo.message}</p>
+        <p>Order ID: ${orderId}</p>
+        ${orderDetails ? `<p>Total: ${orderDetails.total}</p>` : ''}
+        <p>Best regards,<br>The UniCircle Team</p>
+      `,
+    });
+  }
+
   async sendMatchNotification(email: string, matchedUserName: string) {
     const from = this.configService.get<string>('SMTP_FROM', 'UniCircle <noreply@unicircle.app>');
     

@@ -82,4 +82,27 @@ export class MarketplaceController {
   ) {
     return this.marketplaceService.reportListing(id, user.userId, dto.reason);
   }
+
+  @Get('vendors')
+  @ApiOperation({ summary: 'Get vendors for marketplace' })
+  async getVendors(
+    @CurrentUser() user: any,
+    @Query('universityId') universityId?: string,
+  ) {
+    return this.marketplaceService.getVendorItems(universityId);
+  }
+
+  @Get('items')
+  @ApiOperation({ summary: 'Get vendor items' })
+  async getVendorItems(
+    @CurrentUser() user: any,
+    @Query('vendorId') vendorId?: string,
+    @Query('universityId') universityId?: string,
+  ) {
+    if (vendorId) {
+      // Get items for specific vendor
+      return this.marketplaceService.getListings(user.userId, { vendorId });
+    }
+    return this.marketplaceService.getVendorItems(universityId);
+  }
 }

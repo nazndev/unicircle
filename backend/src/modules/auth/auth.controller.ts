@@ -89,18 +89,29 @@ export class AuthController {
   @Post('admin/login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Admin login (super admin only)' })
+  @Public()
   async adminLogin(@Body() dto: AdminLoginDto) {
-    console.log('[AUTH CONTROLLER] Admin login request received:', { 
-      email: dto.email,
-      hasPassword: !!dto.password 
-    });
-    const result = await this.authService.adminLogin(dto.email, dto.password);
-    console.log('[AUTH CONTROLLER] Admin login result:', { 
-      hasAccessToken: !!result.accessToken,
-      userEmail: result.user?.email,
-      userRole: result.user?.role 
-    });
-    return result;
+    try {
+      console.log('[AUTH CONTROLLER] Admin login request received:', { 
+        email: dto.email,
+        hasPassword: !!dto.password 
+      });
+      const result = await this.authService.adminLogin(dto.email, dto.password);
+      console.log('[AUTH CONTROLLER] Admin login result:', { 
+        hasAccessToken: !!result.accessToken,
+        userEmail: result.user?.email,
+        userRole: result.user?.role 
+      });
+      return result;
+    } catch (error: any) {
+      console.error('[AUTH CONTROLLER] Admin login error:', {
+        message: error.message,
+        status: error.status,
+        stack: error.stack,
+        response: error.response
+      });
+      throw error;
+    }
   }
 
   @Public()

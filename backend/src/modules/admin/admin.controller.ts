@@ -317,4 +317,67 @@ export class AdminController {
   ) {
     return this.adminService.rejectNameVerification(id, user.userId, dto?.reason);
   }
+
+  @Get('vendors')
+  @ApiOperation({ summary: 'Get all vendors' })
+  async getVendors(
+    @CurrentUser() user: any,
+    @Query('status') status?: string,
+  ) {
+    return this.adminService.getVendors(user.userId, status);
+  }
+
+  @Post('vendors/:id/approve')
+  @ApiOperation({ summary: 'Approve a vendor' })
+  async approveVendor(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.adminService.approveVendor(id, user.userId);
+  }
+
+  @Post('vendors/:id/reject')
+  @ApiOperation({ summary: 'Reject a vendor' })
+  async rejectVendor(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+    @Body() dto?: { reason?: string },
+  ) {
+    return this.adminService.rejectVendor(id, user.userId, dto?.reason);
+  }
+
+  @Put('vendors/:id/suspend')
+  @ApiOperation({ summary: 'Suspend a vendor' })
+  async suspendVendor(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+    @Body() dto?: { reason?: string },
+  ) {
+    return this.adminService.suspendVendor(id, user.userId, dto?.reason);
+  }
+
+  @Get('billing/invoices')
+  @ApiOperation({ summary: 'Get all invoices' })
+  async getInvoices(
+    @CurrentUser() user: any,
+    @Query('status') status?: string,
+    @Query('context') context?: string,
+  ) {
+    return this.adminService.getInvoices(user.userId, status, context);
+  }
+
+  @Get('billing/analytics')
+  @ApiOperation({ summary: 'Get billing analytics' })
+  async getBillingAnalytics(
+    @CurrentUser() user: any,
+    @Query('window') window?: string,
+  ) {
+    return this.adminService.getBillingAnalytics(user.userId, window);
+  }
+
+  @Get('metrics/roi')
+  @ApiOperation({ summary: 'Get ROI metrics' })
+  async getROIMetrics(
+    @CurrentUser() user: any,
+    @Query('window') window?: string,
+  ) {
+    return this.adminService.getROIMetrics(user.userId, window);
+  }
 }

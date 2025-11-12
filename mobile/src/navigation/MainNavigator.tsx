@@ -14,6 +14,7 @@ import MessagesScreen from '../screens/main/MessagesScreen';
 import ProfileScreen from '../screens/main/ProfileScreen';
 import NameVerificationScreen from '../screens/main/NameVerificationScreen';
 import BadgeVerificationScreen from '../screens/main/BadgeVerificationScreen';
+import VendorOnboardingScreen from '../screens/main/VendorOnboardingScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -49,6 +50,11 @@ function ProfileStack() {
         options={({ route }) => ({ 
           title: (route.params as any)?.badgeName ? `${(route.params as any).badgeName} Verification` : 'Badge Verification' 
         })}
+      />
+      <Stack.Screen 
+        name="VendorOnboarding" 
+        component={VendorOnboardingScreen}
+        options={{ title: 'Become a Vendor' }}
       />
     </Stack.Navigator>
   );

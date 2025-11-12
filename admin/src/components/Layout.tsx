@@ -20,6 +20,8 @@ import {
   SearchOutlined,
   GlobalOutlined,
   TrophyOutlined,
+  ShopOutlined,
+  DollarOutlined,
 } from '@ant-design/icons';
 import { useState } from 'react';
 import { useAuthStore } from '@/store/authStore';
@@ -93,6 +95,18 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       icon: <ShoppingOutlined />,
       label: 'Marketplace',
       roles: ['super_admin', 'admin', 'moderator'],
+    },
+    {
+      key: '/vendors',
+      icon: <ShopOutlined />,
+      label: 'Vendors',
+      roles: ['super_admin', 'admin'],
+    },
+    {
+      key: '/billing',
+      icon: <DollarOutlined />,
+      label: 'Billing',
+      roles: ['super_admin', 'admin'],
     },
     {
       key: '/reports',

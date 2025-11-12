@@ -55,6 +55,10 @@ export class MarketplaceService {
       where.category = filters.category;
     }
 
+    if (filters.vendorId) {
+      where.vendorId = filters.vendorId;
+    }
+
     if (filters.universityId) {
       where.universityId = filters.universityId;
     } else if (user.universityId) {
@@ -100,6 +104,33 @@ export class MarketplaceService {
         totalPages: Math.ceil(total / limit),
       },
     };
+  }
+
+  async getVendorItems(universityId?: string) {
+    const where: any = { isActive: true };
+    
+    if (universityId) {
+      where.campusCoverage = { has: universityId };
+    }
+
+    const items = await this.prisma.vendorItem.findMany({
+      where,
+      include: {
+        vendor: {
+          select: {
+            id: true,
+            businessName: true,
+            status: true,
+            locations: {
+              where: { isActive: true },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return items;
   }
 
   async getListing(id: string, userId: string) {

@@ -1125,6 +1125,13 @@ export default function ProfileScreen() {
         </Text>
       </View>
       <View style={styles.actionButtonsContainer}>
+        <TouchableOpacity 
+          style={styles.vendorButton} 
+          onPress={() => navigation.navigate('VendorOnboarding' as never)}
+        >
+          <Ionicons name="storefront-outline" size={20} color="#5C7AEA" style={{ marginRight: 8 }} />
+          <Text style={styles.vendorButtonText}>I am a Vendor</Text>
+        </TouchableOpacity>
         <TouchableOpacity style={styles.logoutButton} onPress={logout}>
           <Text style={styles.logoutButtonText}>Logout</Text>
         </TouchableOpacity>
@@ -1597,6 +1604,23 @@ const styles = StyleSheet.create({
   },
   actionButtonsContainer: {
     paddingBottom: 100, // Extra padding to ensure buttons are visible above bottom nav
+  },
+  vendorButton: {
+    backgroundColor: '#F0F4FF',
+    padding: 15,
+    borderRadius: 10,
+    alignItems: 'center',
+    marginTop: 20,
+    marginHorizontal: 15,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#5C7AEA',
+  },
+  vendorButtonText: {
+    color: '#5C7AEA',
+    fontSize: 16,
+    fontWeight: '600',
   },
   logoutButton: {
     backgroundColor: '#5C7AEA',

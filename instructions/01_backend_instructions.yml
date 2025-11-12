@@ -453,6 +453,33 @@ tasks:
       - reveal pending reciprocal crushes
       - send email/push notifications
 
+  - id: sync-vendor-ecosystem
+    title: Integrate Vendor Ecosystem Across Core Modules
+    description: >
+      Extend backend logic to include vendor onboarding and linkage between student, professional,
+      and external vendors. Follow the updated 00_feature_map.yml definitions for:
+      - vendor_portal
+      - marketplace_extensions
+      - orders_and_checkout
+      - payments_and_payouts
+      - campus_partner_portal
+    actions:
+      - Ensure vendor_profile model supports vendorType (internal | external)
+      - Allow verified students and professionals to self-upgrade to vendor
+      - Link vendorId to userId when internal vendor is created
+      - Enable admin/vendor dashboards to display sales, campaigns, payouts
+      - Include vendor analytics in metrics_and_roi reporting
+      - Add vendor referral incentives per growth_incentives section
+    dependencies:
+      - marketplace
+      - revenue_model
+      - analytics_and_audit
+      - system_admin
+    output:
+      - REST endpoints for vendor, payouts, and ROI reporting
+      - Seed data for initial test vendors
+      - Role-based access controls for vendorOwner and campusAdmin
+
   - id: swagger
     title: Generate OpenAPI
     steps:

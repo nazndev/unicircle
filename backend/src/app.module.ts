@@ -29,6 +29,10 @@ import { OrganizationModule } from './modules/organization/organization.module';
 import { BadgeModule } from './modules/badge/badge.module';
 import { CacheModule } from './modules/cache/cache.module';
 import { ReferralModule } from './modules/referral/referral.module';
+import { VendorModule } from './modules/vendor/vendor.module';
+import { OrdersModule } from './modules/orders/orders.module';
+import { PayoutsModule } from './modules/payouts/payouts.module';
+import { BillingModule } from './modules/billing/billing.module';
 
 @Module({
   imports: [
@@ -66,6 +70,10 @@ import { ReferralModule } from './modules/referral/referral.module';
     BadgeModule,
     CacheModule,
     ReferralModule,
+    VendorModule,
+    OrdersModule,
+    PayoutsModule,
+    BillingModule,
   ],
   providers: [
     {

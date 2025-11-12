@@ -1679,5 +1679,383 @@ export class AdminService {
     await this.checkAdmin(adminId);
     return this.cacheService.getCacheStats();
   }
+
+  /**
+   * Vendor Management
+   */
+  async getVendors(adminId: string, status?: string) {
+    await this.checkAdmin(adminId);
+
+    const where: any = {};
+    if (status) {
+      where.status = status;
+    }
+
+    return this.prisma.vendor.findMany({
+      where,
+      include: {
+        owner: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+        locations: true,
+        _count: {
+          select: {
+            items: true,
+            orders: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async approveVendor(adminId: string, vendorId: string) {
+    await this.checkAdmin(adminId);
+
+    const vendor = await this.prisma.vendor.findUnique({
+      where: { id: vendorId },
+    });
+
+    if (!vendor) {
+      throw new NotFoundException('Vendor not found');
+    }
+
+    if (vendor.status === 'approved') {
+      throw new BadRequestException('Vendor is already approved');
+    }
+
+    const updated = await this.prisma.vendor.update({
+      where: { id: vendorId },
+      data: {
+        status: 'approved',
+        approvedBy: adminId,
+        approvedAt: new Date(),
+      },
+    });
+
+    // Log in audit
+    await this.prisma.auditLog.create({
+      data: {
+        actorId: adminId,
+        action: 'vendor_approved',
+        entityType: 'vendor',
+        entityId: vendorId,
+        metadata: {
+          businessName: vendor.businessName,
+          email: vendor.email,
+        },
+      },
+    });
+
+    // Send notification
+    if (vendor.email) {
+      try {
+        await this.mailService.sendVendorApprovalNotification(vendor.email, vendor.businessName, true);
+      } catch (error) {
+        console.error('Failed to send vendor approval notification:', error);
+      }
+    }
+
+    return updated;
+  }
+
+  async rejectVendor(adminId: string, vendorId: string, reason?: string) {
+    await this.checkAdmin(adminId);
+
+    const vendor = await this.prisma.vendor.findUnique({
+      where: { id: vendorId },
+    });
+
+    if (!vendor) {
+      throw new NotFoundException('Vendor not found');
+    }
+
+    const updated = await this.prisma.vendor.update({
+      where: { id: vendorId },
+      data: {
+        status: 'rejected',
+        approvedBy: adminId,
+        approvedAt: new Date(),
+      },
+    });
+
+    // Log in audit
+    await this.prisma.auditLog.create({
+      data: {
+        actorId: adminId,
+        action: 'vendor_rejected',
+        entityType: 'vendor',
+        entityId: vendorId,
+        metadata: {
+          businessName: vendor.businessName,
+          email: vendor.email,
+          reason: reason || 'Not provided',
+        },
+      },
+    });
+
+    // Send notification
+    if (vendor.email) {
+      try {
+        await this.mailService.sendVendorApprovalNotification(vendor.email, vendor.businessName, false);
+      } catch (error) {
+        console.error('Failed to send vendor rejection notification:', error);
+      }
+    }
+
+    return updated;
+  }
+
+  async suspendVendor(adminId: string, vendorId: string, reason?: string) {
+    await this.checkAdmin(adminId);
+
+    const vendor = await this.prisma.vendor.findUnique({
+      where: { id: vendorId },
+    });
+
+    if (!vendor) {
+      throw new NotFoundException('Vendor not found');
+    }
+
+    const updated = await this.prisma.vendor.update({
+      where: { id: vendorId },
+      data: {
+        status: 'suspended',
+      },
+    });
+
+    // Log in audit
+    await this.prisma.auditLog.create({
+      data: {
+        actorId: adminId,
+        action: 'vendor_suspended',
+        entityType: 'vendor',
+        entityId: vendorId,
+        metadata: {
+          businessName: vendor.businessName,
+          email: vendor.email,
+          reason: reason || 'Not provided',
+        },
+      },
+    });
+
+    return updated;
+  }
+
+  /**
+   * Billing Management
+   */
+  async getInvoices(adminId: string, status?: string, context?: string) {
+    await this.checkAdmin(adminId);
+
+    const where: any = {};
+    if (status) {
+      where.status = status;
+    }
+    if (context) {
+      where.context = context;
+    }
+
+    return this.prisma.invoice.findMany({
+      where,
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+        vendor: {
+          select: {
+            id: true,
+            businessName: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async getBillingAnalytics(adminId: string, window: string = 'month') {
+    await this.checkAdmin(adminId);
+
+    const now = new Date();
+    let startDate: Date;
+
+    switch (window) {
+      case 'week':
+        startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        break;
+      case 'month':
+        startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        break;
+      case 'quarter':
+        startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+        break;
+      default:
+        startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    }
+
+    const [totalRevenue, paidInvoices, pendingInvoices, byContext] = await Promise.all([
+      this.prisma.invoice.aggregate({
+        where: {
+          status: 'paid',
+          createdAt: { gte: startDate },
+        },
+        _sum: { amount: true },
+      }),
+      this.prisma.invoice.count({
+        where: {
+          status: 'paid',
+          createdAt: { gte: startDate },
+        },
+      }),
+      this.prisma.invoice.count({
+        where: {
+          status: 'pending',
+          createdAt: { gte: startDate },
+        },
+      }),
+      this.prisma.invoice.groupBy({
+        by: ['context'],
+        where: {
+          status: 'paid',
+          createdAt: { gte: startDate },
+        },
+        _sum: { amount: true },
+        _count: true,
+      }),
+    ]);
+
+    return {
+      window,
+      totalRevenue: totalRevenue._sum.amount || 0,
+      paidInvoices,
+      pendingInvoices,
+      byContext: byContext.map((item) => ({
+        context: item.context,
+        revenue: item._sum.amount || 0,
+        count: item._count,
+      })),
+    };
+  }
+
+  async getROIMetrics(adminId: string, window: string = 'quarter') {
+    await this.checkAdmin(adminId);
+
+    const now = new Date();
+    let startDate: Date;
+
+    switch (window) {
+      case 'month':
+        startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        break;
+      case 'quarter':
+        startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+        break;
+      case 'year':
+        startDate = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+        break;
+      default:
+        startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+    }
+
+    const [
+      totalUsers,
+      activeUsers,
+      marketplaceGMV,
+      platformFees,
+      paidFeatures,
+      activeVendors,
+      jobPostings,
+      researchOpportunities,
+    ] = await Promise.all([
+      this.prisma.user.count({
+        where: { createdAt: { gte: startDate } },
+      }),
+      this.prisma.user.count({
+        where: {
+          createdAt: { gte: startDate },
+          verificationStatus: 'approved',
+        },
+      }),
+      this.prisma.order.aggregate({
+        where: {
+          status: { not: 'cancelled' },
+          paymentStatus: 'paid',
+          createdAt: { gte: startDate },
+        },
+        _sum: { total: true },
+      }),
+      this.prisma.order.aggregate({
+        where: {
+          status: { not: 'cancelled' },
+          paymentStatus: 'paid',
+          createdAt: { gte: startDate },
+        },
+        _sum: { fees: true },
+      }),
+      this.prisma.invoice.count({
+        where: {
+          status: 'paid',
+          createdAt: { gte: startDate },
+        },
+      }),
+      this.prisma.vendor.count({
+        where: {
+          status: 'approved',
+          createdAt: { gte: startDate },
+        },
+      }),
+      this.prisma.job.count({
+        where: {
+          createdAt: { gte: startDate },
+        },
+      }),
+      this.prisma.researchOpportunity.count({
+        where: {
+          createdAt: { gte: startDate },
+        },
+      }),
+    ]);
+
+    // Calculate CAC (Customer Acquisition Cost)
+    // CAC = Total marketing spend / New users acquired
+    // For now, we'll use a placeholder - in production, track marketing spend
+    const marketingSpend = 0; // TODO: Track actual marketing spend
+    const cac = totalUsers > 0 ? marketingSpend / totalUsers : 0;
+
+    // Calculate ARPU (Average Revenue Per User)
+    // ARPU = Total revenue / Active users
+    const totalRevenue = (marketplaceGMV._sum.total || 0) + (platformFees._sum.fees || 0);
+    const arpu = activeUsers > 0 ? totalRevenue / activeUsers : 0;
+
+    return {
+      window,
+      acquisition: {
+        totalUsers,
+        activeUsers,
+        cac,
+      },
+      marketplace: {
+        gmv: marketplaceGMV._sum.total || 0,
+        takeRate: platformFees._sum.fees || 0,
+        paidFeatures,
+        activeVendors,
+        arpu,
+      },
+      jobs: {
+        postings: jobPostings,
+      },
+      research: {
+        opportunities: researchOpportunities,
+      },
+    };
+  }
 }
 

@@ -11,6 +11,7 @@ model Country {
   id                  String               @id @default(uuid())
   name                String               @unique
   code                String?              @unique // ISO 3166-1 alpha-2 code (e.g., "US", "BD", "GB")
+  currency            String               @default("BDT") // ISO 4217 currency code (e.g., "BDT", "USD", "GBP")
   active              Boolean              @default(false) // Countries are inactive by default
   universities        University[]
   organizations       Organization[]
@@ -20,6 +21,7 @@ model Country {
 
   @@index([active])
   @@index([name])
+  @@index([currency])
 }
 
 model University {
@@ -32,6 +34,7 @@ model University {
   allowCrossCampus      Boolean               @default(false)
   users                 User[]
   researchOpportunities ResearchOpportunity[]
+  orders                Order[]
   createdAt             DateTime              @default(now())
 
   @@index([countryId])
@@ -145,12 +148,17 @@ model User {
   devices                   Device[]
   researchOpportunities     ResearchOpportunity[] // Teachers publish research
   researchApplications      ResearchApplication[] // Students apply
+  // Vendor and commerce relations (added below)
   // Referral system
   referralCode              String                @unique @default(uuid()) // Unique code for referring others
   referredBy                String? // User ID who referred this user
   referredByUser            User?                 @relation("UserReferrals", fields: [referredBy], references: [id])
   referrals                 User[]                @relation("UserReferrals") // Users referred by this user
   referralPoints            Int                   @default(0) // Points earned from referrals
+  // Vendor and commerce relations
+  vendorOwned                Vendor[]              @relation("VendorOwner")
+  orders                     Order[]               @relation("OrderBuyer")
+  invoices                   Invoice[]             @relation("InvoiceUser")
 }
 
 model AlumniApproval {
@@ -346,7 +354,7 @@ model JobApplication {
 model MarketplaceListing {
   id           String   @id @default(uuid())
   type         String // rent | sale | opportunity | service
-  category     String // accommodation | flatmate_wanted | electronics | books | furniture | distribution | entrepreneurship | campus_opportunity | services | events | other
+  category     String // accommodation | flatmate_wanted | electronics | books | furniture | distribution | entrepreneurship | campus_opportunity | services | events | other | local_business | promos | services_pro
   title        String
   description  String
   price        Float? // Optional - for opportunities/services, can be commission/stipend/fee
@@ -354,6 +362,12 @@ model MarketplaceListing {
   universityId String?
   ownerId      String
   owner        User     @relation(fields: [ownerId], references: [id])
+  vendorId     String? // For vendor items
+  vendorItemId String? // Reference to VendorItem if this listing is linked to a vendor item
+  stockQty      Int? // For vendor items
+  schedule      Json? // Opening hours for services
+  fulfillmentType String? // pickup | delivery | service_booking | coupon
+  campusCoverage String[] @default([]) // Array of universityId for vendor items
   images       Json?
   contactInfo  String?
   metadata     Json? // Additional data: requirements, duration, compensation type, etc.
@@ -362,6 +376,7 @@ model MarketplaceListing {
   createdAt    DateTime @default(now())
 
   @@index([ownerId])
+  @@index([vendorId])
   @@index([isActive])
   @@index([category])
   @@index([createdAt])
@@ -533,4 +548,190 @@ model Settings {
   termsMessage                   String? // Message to show when user clicks terms checkbox
   termsLink                      String? // URL where full terms and conditions are displayed
   updatedAt                      DateTime @default(now()) @updatedAt
+}
+
+// Vendor Portal Models
+model Vendor {
+  id                    String          @id @default(uuid())
+  businessName           String
+  proprietorName         String
+  email                  String          @unique
+  phone                  String
+  phoneVerified          Boolean         @default(false)
+  emailVerified          Boolean         @default(false)
+  tradeLicenseOrNID      String? // Trade license number or NID
+  documents              Json? // KYC documents (trade license, NID, bank statement)
+  bankAccount            Json? // Bank or MFS account details for payouts
+  status                 String          @default("pending") // pending | approved | rejected | suspended
+  approvedBy             String? // Admin ID
+  approvedAt             DateTime?
+  ownerId                String? // User ID if vendor owner is a UniCircle user
+  owner                  User?          @relation("VendorOwner", fields: [ownerId], references: [id])
+  locations               VendorLocation[]
+  items                   VendorItem[]
+  orders                  Order[]
+  payouts                 Payout[]
+  campaigns               Campaign[]
+  invoices                Invoice[]
+  createdAt               DateTime        @default(now())
+  updatedAt               DateTime        @default(now()) @updatedAt
+
+  @@index([status])
+  @@index([email])
+  @@index([ownerId])
+}
+
+model VendorLocation {
+  id          String   @id @default(uuid())
+  vendorId    String
+  vendor      Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  name        String // e.g., "Main Branch", "Campus Outlet"
+  address     String
+  latitude    Float?
+  longitude   Float?
+  phone       String?
+  schedule    Json? // Opening hours { monday: { open: "09:00", close: "18:00" }, ... }
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  @@index([vendorId])
+}
+
+model VendorItem {
+  id                String   @id @default(uuid())
+  vendorId          String
+  vendor             Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  title              String
+  description       String?
+  category           String // local_business | promos | services_pro | other
+  price              Float?
+  stockQty           Int?
+  images             Json? // Array of image URLs
+  fulfillmentType    String  @default("pickup") // pickup | delivery | service_booking | coupon
+  schedule           Json? // For services: booking schedule
+  campusCoverage     String[] @default([]) // Array of universityId
+  metadata           Json? // Additional data
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @default(now()) @updatedAt
+  orderItems         OrderItem[]
+
+  @@index([vendorId])
+  @@index([category])
+  @@index([isActive])
+}
+
+// Orders and Checkout
+model Order {
+  id              String      @id @default(uuid())
+  buyerId         String
+  buyer           User        @relation("OrderBuyer", fields: [buyerId], references: [id])
+  vendorId        String
+  vendor          Vendor      @relation(fields: [vendorId], references: [id])
+  items           OrderItem[]
+  subtotal        Float
+  fees            Float        @default(0) // Platform fees
+  total           Float
+  paymentMethod   String       @default("cod") // cod | mfs | card | prepaid_token
+  paymentStatus   String       @default("pending") // pending | paid | failed | refunded
+  status          String       @default("created") // created | confirmed | fulfilled | cancelled | refunded
+  currency        String       @default("BDT") // ISO 4217 currency code - derived from country
+  deliveryInfo    String? // address or pickup point; optional for service_booking
+  bookingSlot     String? // ISO 8601 interval or time slot id for service_booking
+  universityId    String?
+  university      University?  @relation(fields: [universityId], references: [id])
+  metadata        Json? // Additional order data
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @default(now()) @updatedAt
+
+  @@index([buyerId])
+  @@index([vendorId])
+  @@index([status])
+  @@index([universityId])
+  @@index([createdAt])
+}
+
+model OrderItem {
+  id        String   @id @default(uuid())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  itemId    String
+  item      VendorItem @relation(fields: [itemId], references: [id])
+  title     String
+  qty       Int
+  unitPrice Float
+  subtotal  Float
+
+  @@index([orderId])
+  @@index([itemId])
+}
+
+// Payments and Payouts
+model Payout {
+  id           String   @id @default(uuid())
+  vendorId     String
+  vendor       Vendor   @relation(fields: [vendorId], references: [id])
+  periodStart  DateTime
+  periodEnd    DateTime
+  grossSales   Float
+  platformFees Float
+  adjustments  Float    @default(0) // Refunds, adjustments
+  netPayable   Float
+  currency     String   @default("BDT") // ISO 4217 currency code - derived from vendor's country
+  status       String   @default("pending") // pending | processing | paid | failed
+  disbursedAt  DateTime?
+  transactionId String? // External transaction ID
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @default(now()) @updatedAt
+
+  @@index([vendorId])
+  @@index([status])
+  @@index([periodStart, periodEnd])
+}
+
+// Billing and Pricing
+model Invoice {
+  id            String   @id @default(uuid())
+  userId        String?
+  user          User?    @relation("InvoiceUser", fields: [userId], references: [id])
+  vendorId      String?
+  vendor        Vendor?  @relation(fields: [vendorId], references: [id])
+  context       String // marketplace_feature | vendor_boost | job_posting | premium_badge
+  referenceId   String // ID of the item being billed (listing ID, job ID, etc.)
+  amount        Float
+  currency      String   @default("BDT") // ISO 4217 currency code - derived from user's country
+  status        String   @default("pending") // pending | paid | failed | refunded
+  paymentMethod String?
+  paidAt        DateTime?
+  pdfUrl        String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @default(now()) @updatedAt
+
+  @@index([userId])
+  @@index([vendorId])
+  @@index([status])
+  @@index([context])
+}
+
+// Campaigns (for vendor boosts and featured listings)
+model Campaign {
+  id              String   @id @default(uuid())
+  vendorId        String
+  vendor          Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  type            String // featured | boosted | spotlight
+  targetType      String? // listing | vendor | item
+  targetId        String? // ID of the target (listing ID, item ID, etc.)
+  impressions     Int      @default(0)
+  impressionsGuarantee Int? // For boosted campaigns
+  startDate       DateTime
+  endDate         DateTime
+  status          String   @default("active") // active | paused | completed | cancelled
+  invoiceId       String? // Reference to invoice
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @default(now()) @updatedAt
+
+  @@index([vendorId])
+  @@index([status])
+  @@index([startDate, endDate])
 }

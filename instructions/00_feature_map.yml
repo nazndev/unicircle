@@ -27,6 +27,14 @@ core_domains:
   - analytics_and_audit
   - system_admin
   - revenue_model
+  - vendor_portal
+  - orders_and_checkout
+  - payments_and_payouts
+  - campus_partner_portal
+  - billing_and_pricing
+  - growth_incentives
+  - ops_and_sla
+  - metrics_and_roi
 
 
 features:
@@ -76,7 +84,19 @@ features:
           - Teachers who want professional features can select their university from the same dropdown
           - This prevents redundancy - universities serve both students AND professionals
           - Professionals can connect with others from the same organization or university
+      alumni_flow:
+        description: "Alumni who register without active university email."
+        steps:
+          - POST /auth/request-code (with personal email)
+          - POST /auth/verify-code
+          - POST /auth/alumni-register (upload graduation proof documents[])
+        result: "isVerified=true, verificationStatus=pending, isAlumni=false (until approved)"
+        rules:
+          - Admin review creates AlumniApproval
+          - On approval: isAlumni=true, alumniVerified=true
       note: "Alumni and Teacher are BADGES/STATUSES, not profile modes. Alumni status (isAlumni boolean) is automatically granted when users transition from student to professional, or when directly registering as professional with university information. Teacher badge (isTeacher boolean) enables research features and can be combined with any profile mode (student or professional). Profile modes are: student | professional (base roles). Badges enable Spaces - specialized communities where badge holders can connect. Each badge type (teacher, engineer, doctor, etc.) gets its own dedicated space."
+    idempotency:
+      - "All POST /auth/* endpoints accept Idempotency-Key header; server must ensure single effect per key (24h TTL)."
     endpoints:
       - POST /auth/request-code
       - POST /auth/verify-code
@@ -115,13 +135,14 @@ features:
       - avatarUrl
       - interests
       - allowCrossCampus
-      - profileMode            # student | professional (base roles - teacher is a badge, not a profile mode)
+      - profileMode            # enum: [student, professional] - frozen enum, cannot be extended without schema migration
       - isAlumni               # boolean - Alumni badge (automatically set when transitioning from student to professional, or when directly registering as professional with university info)
       - alumniVerified         # boolean - Alumni verification badge
       - isTeacher              # boolean - Teacher badge (enables research features, grants access to Research Space, can be combined with any profile mode)
       - teacherVerified         # boolean - Teacher verification badge
-      - badges[]                # UserBadge[] - Generic badge system (teacher, engineer, doctor, researcher, intern, etc.)
+      - badges[]                # UserBadge[] - Generic badge system (teacher, engineer, doctor, researcher, intern, etc.) - Note: vendor is NOT a badge, it's a separate business entity
       - spaces[]                # Array of spaces user has access to (based on verified badges) - returned in GET /me/features
+      - vendorOwned[]           # Vendor[] - Vendors owned by this user (if any) - separate from badges, works for both student and professional profiles
       - currentStatus          # studying | looking_for_internship | looking_for_job | working | teaching
       - headline               # professional tagline
       - experience             # list/json
@@ -135,6 +156,7 @@ features:
     actions:
       - GET /me
       - GET /me/features        # Returns profile features + available spaces based on verified badges
+      - GET /me/roles           # returns derived roles & badge-scoped permissions
       - PUT /me
       - PUT /me/profile-mode    # supports profile transitions with verification
       - DELETE /me
@@ -403,7 +425,7 @@ features:
       - Application includes: cover letter, CV/resume, transcript (optional)
 
   marketplace:
-    goal: "Comprehensive campus marketplace for accommodation, used items, distribution networks, entrepreneurship opportunities, campus roles, and services."
+    goal: "Comprehensive campus marketplace for accommodation, used items, distribution networks, entrepreneurship opportunities, campus roles, services, and vendor catalogs."
     listings:
       - accommodation        # room/seat/hostel/sublet
       - flatmate_wanted      # find people to share
@@ -415,17 +437,26 @@ features:
       - campus_opportunity  # campus roles (moderator, event organizer, student ambassador, etc.)
       - services             # tutoring, freelancing, consulting
       - events               # event tickets, workshops, seminars
+      - local_business       # vendor items: food, print shop, gym, transport (see marketplace_extensions)
+      - promos               # vendor time-bound offers, coupons (see marketplace_extensions)
+      - services_pro         # professional services from vendors (see marketplace_extensions)
       - other                # other items/opportunities
     schema:
       - id
       - type: rent | sale | opportunity | service
-      - category: accommodation | flatmate_wanted | electronics | books | furniture | distribution | entrepreneurship | campus_opportunity | services | events | other
+      - category: accommodation | flatmate_wanted | electronics | books | furniture | distribution | entrepreneurship | campus_opportunity | services | events | local_business | promos | services_pro | other
       - title
       - description
       - price (optional - for opportunities/services, can be commission/stipend/fee)
       - location
       - universityId
       - ownerId
+      - vendorId (required if category in [local_business, promos, services_pro])
+      - vendorItemId (required if vendorId is set; references VendorItem)
+      - stockQty (optional - for vendor items)
+      - schedule (optional - opening hours for services)
+      - fulfillmentType (optional - pickup | delivery | service_booking | coupon)
+      - campusCoverage[] (optional - array of universityId for vendor items)
       - images[]
       - contactInfo
       - metadata (JSON) - Additional data: requirements, duration, compensation type, etc.
@@ -434,7 +465,7 @@ features:
       - createdAt
     use_cases:
       - accommodation: "Students post rooms, hostels, sublets for rent"
-      - distribution: "Campus-level distribution networks (food delivery, product distribution, etc.)"
+      - distribution: "Campus-level distribution opportunities (food delivery, product distribution, etc.)"
       - entrepreneurship: "Startup opportunities, business partnerships, co-founder searches"
       - campus_opportunity: "Moderator roles, event organizer positions, student ambassador programs"
       - services: "Tutoring, freelancing, consulting services"
@@ -445,12 +476,22 @@ features:
       - GET /marketplace/:id
       - PUT /marketplace/:id
       - DELETE /marketplace/:id
+      - GET /marketplace/vendors?universityId=...  # vendor items (see marketplace_extensions)
+      - GET /marketplace/items?vendorId=...  # vendor catalog items
       - POST /report with context=marketplace
     moderation:
       - admin can deactivate suspicious listings
     monetization_hooks:
       - POST /marketplace/:id/feature  # paid boost
       - GET /marketplace?featured=true
+    vendor_integration:
+      - see marketplace_extensions for vendor catalog support
+      - vendor items appear in marketplace with vendorId and campusCoverage
+      - orders flow through orders_and_checkout module
+    validation:
+      - "If category in [local_business, promos, services_pro] => vendorId REQUIRED and vendorItemId REQUIRED"
+      - "If fulfillmentType=coupon => stockQty nullable; else stockQty >= 0"
+      - "campusCoverage[] required for multi-campus vendor items"
 
   moderation_and_reporting:
     user_actions:
@@ -503,6 +544,9 @@ features:
     channels:
       - email (default)
       - push (future)
+    delivery:
+      - "Store-and-forward with at-least-once; dedupe by event_id"
+      - "User-level opt-in for email categories; critical events bypass opt-out (security only)"
     events:
       - account_verified
       - alumni_account_approved
@@ -518,6 +562,14 @@ features:
       - research_application_rejected
       - referral_signup: "When someone signs up using your referral code"
       - referral_verified: "When someone you referred verifies their account"
+      - vendor_application_received
+      - vendor_approved
+      - vendor_rejected
+      - order_created
+      - order_confirmed
+      - order_fulfilled
+      - order_cancelled
+      - payout_processed
     scheduler:
       - cron "0 12 * * FRI" Asia/Dhaka
 
@@ -529,21 +581,44 @@ features:
       - track marketplace usage
       - track jobs posted/applied
       - track cross-campus matches
+      - track vendor onboarding and sales (see vendor_portal)
+      - track orders and GMV (see orders_and_checkout)
       - expose /admin/metrics for dashboard
+      - expose /admin/metrics/roi for quarterly reporting (see metrics_and_roi)
 
   system_admin:
     roles:
       - SuperAdmin
       - CampusAdmin
       - Moderator
+      - VendorOwner
+    rbac:
+      roles:
+        SuperAdmin:
+          - "*"
+        CampusAdmin:
+          - "campus:*"
+          - "vendors:approve"
+        Moderator:
+          - "content:moderate"
+          - "reports:resolve"
+        VendorOwner:
+          - "vendor:self:*"       # limited to own vendorId (derived from Vendor.ownerId, not from badge)
+      evaluation:
+        - "JWT -> userId -> roles(badges, profileMode, vendorOwnership) -> permissions"
+        - "Deny by default; allow via explicit capability"
+        - "VendorOwner role: Check if user.userId == Vendor.ownerId (works for both student and professional profiles)"
     dashboard:
-      - user counts (by profileMode: student, teacher, professional, by isAlumni status, by verificationStatus)
+      - user counts (by profileMode: student, professional; by badges: teacher; by isAlumni status; by verificationStatus)
       - active universities and organizations
       - crushes & matches
       - circles and feed engagement
       - jobs posted and applications
       - research opportunities published and applications
       - marketplace listings (active, reported, featured)
+      - vendor management (approvals, analytics, payouts - see vendor_portal)
+      - orders and GMV tracking (see orders_and_checkout)
+      - billing and revenue analytics (see billing_and_pricing)
       - pending alumni approvals (for isAlumni verification)
       - domain whitelisting status (universities and organizations by country)
     config:
@@ -553,13 +628,18 @@ features:
       - enable_career_features
       - enable_research_features
       - enable_marketplace
+      - enable_vendor_portal (see vendor_portal)
+      - platform_fee:
+          default_percent: 10
+          per_category_override: true
       - profile_wise_features (student, professional - base features like marketplace, career, circles, feed)
       - badge_spaces (each verified badge type gets its own dedicated space/community)
       - account_type_availability (enableStudentRegistration, enableTeacherRegistration, enableProfessionalRegistration)
-      - Note: Teacher is a badge (isTeacher), not a profile mode. enableTeacherRegistration controls teacher badge registration availability.
+      - Note: Teacher is a badge (isTeacher), not a profile mode. enableTeacherRegistration controls teacher badge onboarding and verification.
       - country-wise domain whitelisting (universities and organizations)
       - rate limits
       - notification templates
+      - vendor_verification_sla_hours (see ops_and_sla)
     badge_spaces:
       concept: "Badges enable Spaces - specialized communities where badge holders can connect, share stories, post discussions, and collaborate. Each badge type gets its own dedicated space."
       examples:
@@ -600,43 +680,85 @@ features:
       - campus_phase:
           - featured marketplace listings (accommodation, used items)
           - local business/event ads shown in Feed
+          - vendor boosts and campaigns (see vendor_portal)
       - alumni_phase:
           - paid job postings for employers/recruiters
           - mentorship/consultation credits
       - professional_phase:
           - UniCircle Premium (verified badge, profile insights)
           - analytics for employers (viewed, applied, recommended students)
+          - vendor marketplace fees and payouts (see payments_and_payouts)
     endpoints:
       - POST /marketplace/:id/feature
       - POST /jobs/:id/boost
       - GET /billing/plans
+      - POST /billing/checkout (see billing_and_pricing)
+      - POST /vendors/:id/campaigns (see vendor_portal)
     notes:
       - all paid actions must be audited
-      - mobile should show non-intrusive “Promoted” label
-
-# =========================
-# APPEND BELOW THIS LINE
-# =========================
-
-core_domains:
-  - vendor_portal
-  - orders_and_checkout
-  - payments_and_payouts
-  - campus_partner_portal
-  - billing_and_pricing
-  - growth_incentives
-  - ops_and_sla
-  - metrics_and_roi
-
-features:
+      - mobile should show non-intrusive "Promoted" label
+      - see billing_and_pricing for detailed pricing plans and invoicing
+      - see payments_and_payouts for vendor settlement and platform fees
 
   vendor_portal:
-    goal: "Let verified local vendors advertise to specific campuses and sell services or promotions."
+    goal: "Let verified local vendors advertise to specific campuses and sell services or promotions. Both students and professionals can become vendors."
     actors:
-      - vendor_owner
+      - vendor_owner  # Can be a student or professional profile - vendor ownership is separate from profileMode
       - vendor_staff
       - campus_admin
       - super_admin
+    eligibility:
+      - "Any authenticated user (student or professional) can apply to become a vendor"
+      - "Vendor is a business entity, not a badge - tracked via Vendor.ownerId relationship"
+      - "VendorOwner role is derived from vendor ownership, not from profileMode or badges"
+      - "Students can operate businesses (e.g., food delivery, tutoring services)"
+      - "Professionals can operate businesses (e.g., consulting, professional services)"
+    schemas:
+      Vendor:
+        - id
+        - businessName
+        - proprietorName
+        - email
+        - phone
+        - ownerId           # User.id (can be student or professional)
+        - status            # pending | approved | rejected | suspended
+        - createdAt
+        - updatedAt
+      VendorApplication:
+        - id                # Future: separate application tracking before Vendor creation
+        - businessName
+        - proprietorName
+        - email
+        - phone
+        - applicantId       # User.id who applied
+        - status            # pending | approved | rejected
+        - reviewedBy        # Admin ID
+        - reviewedAt
+        - createdAt
+        - Note: "Future enhancement - allows tracking applications separately from approved vendors"
+      VendorItem:
+        - id
+        - vendorId
+        - title
+        - description
+        - category          # align with marketplace categories: local_business, services_pro, promos
+        - price
+        - stockQty
+        - schedule          # opening hours or delivery window
+        - fulfillmentType   # pickup | delivery | service_booking | coupon
+        - campusCoverage[]  # list of universityId
+        - images[]
+        - isActive
+        - createdAt
+        - updatedAt
+      VendorStaff:
+        - id                # Future: multi-user vendor accounts
+        - vendorId
+        - userId            # Staff member User.id
+        - role              # manager | delivery | support | cashier
+        - permissions       # JSON: { manageCatalog: boolean, manageOrders: boolean, viewAnalytics: boolean, manageCampaigns: boolean }
+        - createdAt
+        - Note: "Future enhancement - allows vendors to add staff members with role-based permissions"
     onboarding:
       flows:
         - self_service_signup:
@@ -663,11 +785,35 @@ features:
       - run_campaigns: POST /vendors/:id/campaigns   # featured, boosted
       - respond_inbox: GET/POST /vendors/:id/inbox   # student messages
       - analytics: GET /vendors/:id/analytics
+      - manage_staff: POST/PUT /vendors/:id/staff    # Future: add staff members with permissions
+    staff_permissions:
+      - manager:
+          - "manageCatalog: true"
+          - "manageOrders: true"
+          - "viewAnalytics: true"
+          - "manageCampaigns: true"
+          - "manageStaff: true"
+      - delivery:
+          - "manageOrders: true (fulfill only)"
+          - "viewAnalytics: false"
+      - support:
+          - "respondInbox: true"
+          - "viewOrders: true"
+      - cashier:
+          - "manageOrders: true (confirm only)"
+          - "viewAnalytics: false"
+      - Note: "Future enhancement - role-based permissions for vendor staff members"
     campus_targeting:
       - POST /vendors/:id/targeting  # one or more universityId, geo radius optional
       - rules:
         - vendors can only target enabled campuses
         - CampusAdmin can disable vendors per campus
+        - daily_campaign_cap_per_vendor: 3
+        - frequency_capping_per_user: "max 2 impressions per 24h per campaign"
+    catalog_rules:
+      - "If fulfillmentType=coupon => price >= 0, stockQty optional, generates unique coupon codes on confirm"
+      - "If fulfillmentType=delivery => require delivery zone or fee table"
+      - "schedule supports weekly cron-like syntax e.g., MON-FRI 10:00-20:00"
 
   marketplace_extensions:
     goal: "Extend marketplace for vendor catalogs and campus promos."
@@ -708,6 +854,8 @@ features:
         - total
         - paymentMethod  # cod | mfs | card | prepaid_token
         - status         # created | confirmed | fulfilled | cancelled | refunded
+        - deliveryInfo   # address or pickup point; optional for service_booking
+        - bookingSlot    # ISO 8601 interval or time slot id for service_booking
         - universityId
         - createdAt
         - updatedAt
@@ -722,6 +870,17 @@ features:
       - cancellation_window_minutes: 10
       - refund_policy_text: "Vendor-set, CampusAdmin override allowed"
       - service_booking_support: true
+    state_machine:
+      transitions:
+        - { from: created,   to: confirmed, by: vendor }
+        - { from: created,   to: cancelled, by: buyer, within_minutes: 10 }
+        - { from: confirmed, to: fulfilled, by: vendor }
+        - { from: confirmed, to: cancelled, by: vendor, reason_required: true }
+        - { from: confirmed, to: refunded,  by: admin|vendor, if: prepaid }
+      invariants:
+        - "total = subtotal + fees"
+        - "items[].qty >= 1"
+        - "bookingSlot required if fulfillmentType=service_booking"
 
   payments_and_payouts:
     goal: "Collect platform fees and settle vendor earnings securely."
@@ -729,10 +888,31 @@ features:
       - mfs  # bKash, Nagad, Rocket - via PSP gateway abstraction
       - card
       - cash_on_delivery  # no online capture, fees invoiced
+    currency:
+      - default: "BDT"
+      - supported: ["BDT", "USD"]
+      - country_wise: "Currency is derived from Country.currency field - each country has its own currency"
+      - order_currency: "Order.currency is set from user's university.country.currency"
+      - payout_currency: "Payout.currency is set from vendor owner's university.country.currency"
+      - invoice_currency: "Invoice.currency is set from user's university.country.currency"
     fee_model:
-      - platform_fee_percent: configurable per category
+      - platform_fee:
+          default_percent: configurable
+          per_category_override: allowed
       - fixed_fee_per_order: configurable
       - free_tier: campus pilots can waive fees
+      - rounding:
+          - "Apply banker's rounding to 2 dp after fee calculation"
+    webhooks:
+      - POST /webhooks/payments/gateway     # payment status updates
+      - POST /webhooks/payments/mfs         # MFS gateway notifications
+      - security:
+          - "Verify HMAC signature header"
+          - "Replay protection via event_id + 24h cache"
+    payout_rules:
+      - min_payout_amount_usd: 20
+      - payout_cadence: weekly              # can be overridden to daily in pilots
+      - hold_period_days: 3                 # fraud and refund buffer
     payout_flow:
       steps:
         - compute_settlement_daily: cron "0 3 * * *" Asia/Dhaka
@@ -760,6 +940,7 @@ features:
       - promo_calendar: GET/POST /campus/:id/promos
       - spotlight_slots: configure featured positions in Feed
       - analytics: GET /campus/:id/analytics
+      - vendor_analytics: GET /campus/:id/vendors/analytics  # Future: aggregated campus vendor insights (GMV, active vendors, top categories, conversion rate)
     roles:
       - CampusAdmin
       - Moderator
@@ -789,8 +970,11 @@ features:
       - POST /billing/checkout  # creates invoice + payment intent
       - GET /billing/invoices/me
       - GET /billing/invoices/:id/pdf
+    proration:
+      - "If campaign stopped early by admin, refund unused days pro-rata to vendor wallet"
     refunds:
-      - policy: "within 24 hours if no impressions or listing not published"
+      - policy: "refunds within 24 hours if no impressions recorded or listing not published"
+      - "24h no-impressions auto-refund; else manual review via /billing/tickets"
 
   growth_incentives:
     goal: "Acquire and retain users and vendors with measurable incentives."
@@ -822,18 +1006,37 @@ features:
           - L1: Moderator
           - L2: CampusAdmin
           - L3: SuperAdmin
+    disputes:
+      endpoints:
+        - POST /orders/:id/dispute
+        - POST /orders/:id/dispute/resolve
+      rules:
+        - "Evidence bundle: messages, images, delivery proof"
+        - "Auto-escalate to CampusAdmin at 48h"
     audit:
       - every monetized action captured in AuditLog
       - GET /admin/audit?actorType=vendor|user
+      - commission_change events include before_after snapshot
+      - payout_disburse includes operator id and reference number
+      - enrichment:
+          - "Include request_id, actor_id, actor_role, ip, ua, before_after"
 
   metrics_and_roi:
-    goal: "Quarterly ROI reporting that maps directly to the pitch deck."
+    goal: "Quarterly ROI reporting."
+    formulas:
+      - "GMV = sum(orders where status in [confirmed, fulfilled, refunded]) at order.currency"
+      - "Take Rate = platformFees / GMV"
+      - "ARPU = revenue_in_period / active_users_in_period"
+      - "CAC = marketing_spend / new_verified_users"
+    data_sources:
+      - "orders, payouts, billing invoices, auth_signups, campaign_impressions"
     metrics:
       acquisition:
         - DAU
         - WAU
         - MAU
         - K-factor  # referrals
+        - CAC           # customer acquisition cost
       engagement:
         - posts_per_user
         - matches_per_user
@@ -843,6 +1046,8 @@ features:
         - take_rate     # platform_fee_percent realized
         - paid_features # count and revenue
         - active_vendors
+        - ARPU          # average revenue per user
+        - vendor_conversion_rate  # Future: active_vendors / total_applications
       jobs:
         - postings_paid
         - applications
@@ -868,6 +1073,12 @@ non_functional:
     - rate limiting on POST-heavy endpoints (auth, crush, marketplace)
     - country-wise domain whitelisting (all university and organization email domains must be verified and whitelisted)
     - email verification badges (universityEmailVerified, officeEmailVerified) for authentic profiles
+  rate_limits:
+    - "/auth/request-code: 5/min per ip + 10/day per email"
+    - "/crush: N/day per user (configurable)"
+    - "/vendors/:id/campaigns: 3 active per vendor (enforced)"
+  error_contracts:
+    - "JSON: { errorCode, message, details?, retryable? }"
   performance:
     - indexes on email, universityId, programme, createdAt
     - pagination for posts, jobs, marketplace
@@ -875,6 +1086,7 @@ non_functional:
     - in-app account deletion
     - privacy/terms/community pages
     - document retention policy for alumni proofs
+    - vendor_kyc_retention_policy: "retain KYC docs for 5 years or per local law; allow vendor download and deletion request workflow"
   observability:
     - /healthz and /readyz
     - structured logs

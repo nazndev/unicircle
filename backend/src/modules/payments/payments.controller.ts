@@ -23,5 +23,17 @@ export class PaymentsController {
   async webhook(@Body() payload: any) {
     return this.paymentsService.handleWebhook(payload);
   }
+
+  @Post('webhooks/payments/gateway')
+  @ApiOperation({ summary: 'Payment gateway webhook (for payment status updates)' })
+  async gatewayWebhook(@Body() payload: any) {
+    return this.paymentsService.handleWebhook(payload);
+  }
+
+  @Post('webhooks/payments/mfs')
+  @ApiOperation({ summary: 'MFS gateway webhook (for bKash, Nagad, Rocket notifications)' })
+  async mfsWebhook(@Body() payload: any) {
+    return this.paymentsService.handleMfsWebhook(payload);
+  }
 }
 

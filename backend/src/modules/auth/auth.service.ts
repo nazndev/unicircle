@@ -824,17 +824,27 @@ export class AuthService {
   async adminLogin(email: string, password: string) {
     console.log('[AUTH] Admin login attempt:', { email, passwordLength: password?.length });
     
-    const user = await this.prisma.user.findUnique({
-      where: { email },
-    });
-
-    console.log('[AUTH] User found:', { 
-      found: !!user, 
-      userId: user?.id, 
-      role: user?.role,
-      hasPasswordHash: !!user?.passwordHash,
-      isBlocked: user?.isBlocked 
-    });
+    let user;
+    try {
+      user = await this.prisma.user.findUnique({
+        where: { email },
+      });
+      console.log('[AUTH] User found:', { 
+        found: !!user, 
+        userId: user?.id, 
+        role: user?.role,
+        hasPasswordHash: !!user?.passwordHash,
+        isBlocked: user?.isBlocked 
+      });
+    } catch (error: any) {
+      console.error('[AUTH] Database error during user lookup:', {
+        message: error.message,
+        code: error.code,
+        meta: error.meta,
+        stack: error.stack
+      });
+      throw new UnauthorizedException('Database error during authentication');
+    }
 
     if (!user) {
       console.log('[AUTH] Login failed: User not found');
