@@ -37,12 +37,21 @@ export class UsersController {
   }
 
   @Put('profile-mode')
-  @ApiOperation({ summary: 'Change profile mode (student → alumni → professional)' })
+  @ApiOperation({ summary: 'Change profile mode (student ↔ professional). Teacher is a badge, not a profile mode.' })
   async updateProfileMode(
     @CurrentUser() user: any,
     @Body() dto: UpdateProfileModeDto,
   ) {
     return this.usersService.updateProfileMode(user.userId, dto);
+  }
+
+  @Put('teacher-badge')
+  @ApiOperation({ summary: 'Add or remove teacher badge (enables research features). Requires university email verification.' })
+  async toggleTeacherBadge(
+    @CurrentUser() user: any,
+    @Body() dto: { universityId?: string; documents?: string[] },
+  ) {
+    return this.usersService.toggleTeacherBadge(user.userId, dto);
   }
 
   @Put('complete-onboarding')

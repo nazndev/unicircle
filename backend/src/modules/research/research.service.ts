@@ -1,10 +1,14 @@
 import { Injectable, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateOpportunityDto, ApplyResearchDto } from './dto';
+import { BadgeService } from '../badge/badge.service';
 
 @Injectable()
 export class ResearchService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private badgeService: BadgeService,
+  ) {}
 
   async createOpportunity(userId: string, dto: CreateOpportunityDto) {
     const user = await this.prisma.user.findUnique({
@@ -16,9 +20,13 @@ export class ResearchService {
       throw new ForbiddenException('User not found or blocked');
     }
 
-    // Only teachers can create research opportunities
-    if (user.profileMode !== 'teacher') {
-      throw new ForbiddenException('Only teachers can create research opportunities');
+    // Only users with verified teacher badge can create research opportunities
+    // Check both old isTeacher field and new badge system
+    const hasTeacherBadge = (user as any).isTeacher || 
+      await this.badgeService.hasBadge(user.id, 'teacher', true);
+
+    if (!hasTeacherBadge) {
+      throw new ForbiddenException('Only verified teachers can create research opportunities');
     }
 
     if (!user.isVerified || user.verificationStatus !== 'approved') {
@@ -300,17 +308,12 @@ export class ResearchService {
       throw new ForbiddenException('User not found or blocked');
     }
 
-    // Only students can apply (alumni can be enabled in settings)
-    if (user.profileMode !== 'student') {
-      // Check if alumni can apply (from settings)
-      const settings = await (this.prisma.settings.findUnique({
-        where: { id: 'platform' },
-      }) as Promise<any>);
+    // Students can always apply. Others can apply if they have verified teacher badge
+    const hasTeacherBadge = (user as any).isTeacher || 
+      await this.badgeService.hasBadge(user.id, 'teacher', true);
 
-      const alumniFeatures = (settings?.alumniFeatures as any) || {};
-      if (user.profileMode === 'alumni' && !alumniFeatures.research) {
-        throw new ForbiddenException('Research applications are not enabled for alumni');
-      }
+    if (!hasTeacherBadge && user.profileMode !== 'student') {
+      throw new ForbiddenException('Only students and verified teachers can apply to research opportunities');
     }
 
     const opportunity = await (this.prisma as any).researchOpportunity.findUnique({

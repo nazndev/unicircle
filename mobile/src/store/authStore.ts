@@ -6,21 +6,62 @@ interface User {
   id: string;
   email: string;
   name?: string;
+  nameVerified?: boolean; // Name verification badge (requires document verification and admin approval)
   avatarUrl?: string;
   avatarSizes?: {
     thumbnail?: string;
     medium?: string;
     full?: string;
   };
-  profileMode: 'student' | 'alumni' | 'teacher';
+  profileMode: 'student' | 'professional'; // Base role (teacher is a badge, not a profileMode)
+  isAlumni?: boolean; // Alumni badge (automatically set when transitioning from student to professional, or when directly registering as professional with university info)
+  alumniVerified?: boolean; // Alumni verification badge (true if student→professional transition, or after admin approval for direct registration)
+  isTeacher?: boolean; // Teacher badge (enables research features, can be combined with professional profileMode)
+  teacherVerified?: boolean; // Teacher verification badge (true if verified with university email, or after admin approval)
   verificationStatus: 'pending' | 'approved' | 'rejected';
   isVerified?: boolean;
   onboardingCompleted?: boolean;
+  universityEmailVerified?: boolean; // Badge: verified with university email
+  officeEmailVerified?: boolean; // Badge: verified with office email
+  // Student fields
+  department?: string;
+  programme?: string;
+  semester?: string;
+  passingYear?: number;
+  // Alumni fields
+  graduationYear?: number;
+  currentStatus?: string;
+  // Common fields
+  gender?: string;
+  dateOfBirth?: string;
+  phoneNumber?: string;
+  bio?: string;
+  interests?: string[];
+  headline?: string;
+  experience?: any;
+  skills?: string[];
+  researchInterests?: any;
   university?: {
     id: string;
     name: string;
     country?: string | { id: string; name: string; code: string | null; active: boolean; createdAt: string; updatedAt: string };
   };
+  organization?: {
+    id: string;
+    name: string;
+    country?: string | { id: string; name: string; code: string | null; active: boolean; createdAt: string; updatedAt: string };
+  };
+  badges?: Array<{
+    id: string;
+    badgeType: string;
+    verified: boolean;
+    verifiedAt?: string;
+    documents?: any;
+    metadata?: any;
+    createdAt: string;
+  }>;
+  personalEmail?: string;
+  secondaryContact?: string;
 }
 
 interface Features {
@@ -37,6 +78,7 @@ interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
   needsPinSetup: boolean; // Track if user needs to set PIN
+  hasDeviceBinding: boolean; // Track if device is bound and user has password
   features: Features | null; // Profile-wise features
   countryInactiveError?: {
     message: string;
@@ -60,6 +102,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   isAuthenticated: false,
   isLoading: true,
   needsPinSetup: false,
+  hasDeviceBinding: false,
   features: null,
   countryInactiveError: null,
 
@@ -198,7 +241,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // Don't clear lastAccountType and lastEmail - keep them for next login
     await SecureStore.deleteItemAsync('accessToken');
     await SecureStore.deleteItemAsync('refreshToken');
-    set({ user: null, isAuthenticated: false, needsPinSetup: false, features: null });
+    set({ user: null, isAuthenticated: false, needsPinSetup: false, hasDeviceBinding: false, features: null });
   },
 
   checkAuth: async () => {
@@ -226,22 +269,40 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           if (userData) {
             // Check if user has password set
             let needsPin = false;
+            let hasPassword = false;
             try {
               const passwordCheck = await apiClient.get('/auth/check-password');
               const passwordData = passwordCheck.data?.data || passwordCheck.data;
-              needsPin = !passwordData?.hasPassword;
+              hasPassword = passwordData?.hasPassword || false;
+              needsPin = !hasPassword;
             } catch (error) {
               // If check fails, assume password is set (don't block user)
               console.warn('[AUTH STORE] Could not check password status, assuming password is set');
+              hasPassword = true;
+            }
+            
+            // Check if device is bound (if user has password, check device binding)
+            let deviceBound = false;
+            if (hasPassword) {
+              try {
+                const deviceCheck = await apiClient.get('/auth/check-device');
+                const deviceData = deviceCheck.data?.data || deviceCheck.data;
+                deviceBound = deviceData?.isBound || false;
+              } catch (error) {
+                // If check fails, assume device is not bound
+                console.warn('[AUTH STORE] Could not check device binding status');
+                deviceBound = false;
+              }
             }
             
             set({ 
               user: userData, 
               isAuthenticated: true, 
               isLoading: false,
-              needsPinSetup: needsPin 
+              needsPinSetup: needsPin,
+              hasDeviceBinding: deviceBound && hasPassword
             });
-            console.log('[AUTH STORE] Authentication check successful - user is logged in, needsPinSetup:', needsPin);
+            console.log('[AUTH STORE] Authentication check successful - user is logged in, needsPinSetup:', needsPin, 'hasDeviceBinding:', deviceBound && hasPassword);
             
             // Load features after auth check
             try {
@@ -251,7 +312,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             }
           } else {
             console.warn('[AUTH STORE] No user data in response');
-            set({ user: null, isAuthenticated: false, isLoading: false, needsPinSetup: false });
+            set({ user: null, isAuthenticated: false, isLoading: false, needsPinSetup: false, hasDeviceBinding: false });
           }
         } catch (error: any) {
           // Token invalid or expired - this is expected on app start if token is old
@@ -259,7 +320,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             console.log('[AUTH STORE] Token invalid or expired, clearing tokens (this is normal if user hasn\'t logged in recently)');
             await SecureStore.deleteItemAsync('accessToken');
             await SecureStore.deleteItemAsync('refreshToken');
-            set({ user: null, isAuthenticated: false, isLoading: false, needsPinSetup: false });
+            set({ user: null, isAuthenticated: false, isLoading: false, needsPinSetup: false, hasDeviceBinding: false });
           } else {
             // Network or other errors - don't clear tokens, just set as not authenticated for now
             // Only log actual errors, not expected 401s
@@ -267,17 +328,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
               status: error.response?.status,
               message: error.response?.data?.message || error.message
             });
-            set({ user: null, isAuthenticated: false, isLoading: false, needsPinSetup: false });
+            set({ user: null, isAuthenticated: false, isLoading: false, needsPinSetup: false, hasDeviceBinding: false });
           }
         }
       } else {
         console.log('[AUTH STORE] No token found - user not logged in');
-        set({ user: null, isAuthenticated: false, isLoading: false, needsPinSetup: false });
+        set({ user: null, isAuthenticated: false, isLoading: false, needsPinSetup: false, hasDeviceBinding: false });
       }
     } catch (error) {
       // Handle SecureStore errors
       console.error('[AUTH STORE] SecureStore error:', error);
-      set({ user: null, isAuthenticated: false, isLoading: false, needsPinSetup: false });
+      set({ user: null, isAuthenticated: false, isLoading: false, needsPinSetup: false, hasDeviceBinding: false });
     }
   },
 
@@ -333,7 +394,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           crush: user.profileMode === 'student',
           circles: true,
           feed: true,
-          research: user.profileMode === 'teacher' || user.profileMode === 'student',
+          research: user.isTeacher || user.profileMode === 'student',
         };
         set({ features: defaultFeatures });
       }

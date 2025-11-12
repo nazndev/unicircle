@@ -2,7 +2,9 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
 import { PrismaModule } from './prisma/prisma.module';
+import { MobileApiGuard } from './common/guards/mobile-api.guard';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { UniversityModule } from './modules/university/university.module';
@@ -23,6 +25,10 @@ import { AlumniModule } from './modules/alumni/alumni.module';
 import { ResearchModule } from './modules/research/research.module';
 import { CountryModule } from './modules/country/country.module';
 import { SettingsModule } from './modules/settings/settings.module';
+import { OrganizationModule } from './modules/organization/organization.module';
+import { BadgeModule } from './modules/badge/badge.module';
+import { CacheModule } from './modules/cache/cache.module';
+import { ReferralModule } from './modules/referral/referral.module';
 
 @Module({
   imports: [
@@ -56,6 +62,16 @@ import { SettingsModule } from './modules/settings/settings.module';
     ResearchModule,
     CountryModule,
     SettingsModule,
+    OrganizationModule,
+    BadgeModule,
+    CacheModule,
+    ReferralModule,
+  ],
+  providers: [
+    {
+      provide: APP_GUARD,
+      useClass: MobileApiGuard,
+    },
   ],
 })
 export class AppModule {}

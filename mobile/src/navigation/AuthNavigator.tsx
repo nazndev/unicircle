@@ -10,6 +10,9 @@ import PendingApprovalScreen from '../screens/auth/PendingApprovalScreen';
 import ProfileSetupScreen from '../screens/auth/ProfileSetupScreen';
 import RequestUniversityScreen from '../screens/auth/RequestUniversityScreen';
 import PasswordSetupScreen from '../screens/auth/PasswordSetupScreen';
+import ProfessionalOnboardingScreen from '../screens/auth/ProfessionalOnboardingScreen';
+import PersonalInfoScreen from '../screens/auth/PersonalInfoScreen';
+import PinLoginScreen from '../screens/auth/PinLoginScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -29,6 +32,14 @@ export default function AuthNavigator() {
       }}
     >
       <Stack.Screen 
+        name="PinLogin" 
+        component={PinLoginScreen}
+        options={{ 
+          title: 'Login',
+          headerShown: true,
+        }}
+      />
+      <Stack.Screen 
         name="Welcome" 
         component={WelcomeScreen}
         options={{ headerShown: false }}
@@ -44,9 +55,9 @@ export default function AuthNavigator() {
       <Stack.Screen 
         name="Email" 
         component={EmailScreen}
-        options={{ 
-          title: 'Enter Email',
-        }}
+        options={({ route }) => ({ 
+          title: (route.params as any)?.accountType === 'professional' ? 'Enter Email' : 'Enter University Email',
+        })}
       />
       <Stack.Screen 
         name="OtpVerify" 
@@ -87,15 +98,29 @@ export default function AuthNavigator() {
       <Stack.Screen 
         name="RequestUniversity" 
         component={RequestUniversityScreen}
-        options={{ 
-          title: 'Request University',
-        }}
+        options={({ route }) => ({ 
+          title: (route.params as any)?.accountType === 'professional' ? 'Request Institution' : 'Request University',
+        })}
+      />
+      <Stack.Screen 
+        name="ProfessionalOnboarding"
+        component={ProfessionalOnboardingScreen}
+        options={({ route }) => ({ 
+          title: 'Organization Information',
+        })}
       />
       <Stack.Screen 
         name="PasswordSetup" 
         component={PasswordSetupScreen}
         options={{ 
           title: 'Set Password',
+        }}
+      />
+      <Stack.Screen 
+        name="PersonalInfo" 
+        component={PersonalInfoScreen}
+        options={{ 
+          title: 'Personal Information',
         }}
       />
     </Stack.Navigator>

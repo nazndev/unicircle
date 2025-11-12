@@ -12,9 +12,47 @@ import ResearchScreen from '../screens/main/ResearchScreen';
 import MarketplaceScreen from '../screens/main/MarketplaceScreen';
 import MessagesScreen from '../screens/main/MessagesScreen';
 import ProfileScreen from '../screens/main/ProfileScreen';
+import NameVerificationScreen from '../screens/main/NameVerificationScreen';
+import BadgeVerificationScreen from '../screens/main/BadgeVerificationScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
+
+// Profile Stack Navigator for profile-related screens
+function ProfileStack() {
+  return (
+    <Stack.Navigator
+      screenOptions={{
+        headerShown: true,
+        headerStyle: {
+          backgroundColor: '#5C7AEA',
+        },
+        headerTintColor: '#fff',
+        headerTitleStyle: {
+          fontWeight: 'bold',
+        },
+      }}
+    >
+      <Stack.Screen 
+        name="ProfileMain" 
+        component={ProfileScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen 
+        name="NameVerification" 
+        component={NameVerificationScreen}
+        options={{ title: 'Name Verification' }}
+      />
+      <Stack.Screen 
+        name="BadgeVerification" 
+        component={BadgeVerificationScreen}
+        options={({ route }) => ({ 
+          title: (route.params as any)?.badgeName ? `${(route.params as any).badgeName} Verification` : 'Badge Verification' 
+        })}
+      />
+    </Stack.Navigator>
+  );
+}
 
 export default function MainNavigator() {
   const { user, features, loadFeatures, isAuthenticated } = useAuthStore();
@@ -110,7 +148,7 @@ export default function MainNavigator() {
       <Tab.Screen name="Messages" component={MessagesScreen} />
       
       {/* Profile - always available */}
-      <Tab.Screen name="Profile" component={ProfileScreen} />
+      <Tab.Screen name="Profile" component={ProfileStack} />
     </Tab.Navigator>
   );
 }

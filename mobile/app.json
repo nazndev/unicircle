@@ -31,7 +31,8 @@
       "permissions": [
         "CAMERA",
         "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE"
+        "WRITE_EXTERNAL_STORAGE",
+        "DETECT_SCREEN_CAPTURE"
       ]
     },
     "web": {
@@ -44,7 +45,8 @@
       "expo-font"
     ],
     "extra": {
-      "apiBaseUrl": "http://localhost:3000/api"
+      "apiBaseUrl": "http://localhost:3000/api",
+      "mobileApiKey": "b55371dcdf9faf4235f83cfe385ad47c"
     }
   }
 }

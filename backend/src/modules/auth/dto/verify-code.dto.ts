@@ -1,4 +1,4 @@
-import { IsEmail, IsNotEmpty, IsString, Length } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsString, Length, IsOptional } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class VerifyCodeDto {
@@ -12,5 +12,10 @@ export class VerifyCodeDto {
   @IsNotEmpty()
   @Length(6, 6)
   code: string;
+
+  @ApiProperty({ required: false, example: 'ABC123XYZ', description: 'Optional referral code from the user who referred you' })
+  @IsString()
+  @IsOptional()
+  referralCode?: string;
 }
 

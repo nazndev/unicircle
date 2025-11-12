@@ -1,12 +1,14 @@
 import { Injectable, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
+import { CacheService } from '../cache/cache.service';
 
 @Injectable()
 export class AdminService {
   constructor(
     private prisma: PrismaService,
     private mailService: MailService,
+    private cacheService: CacheService,
   ) {}
 
   private async checkAdmin(userId: string) {
@@ -55,6 +57,137 @@ export class AdminService {
     });
   }
 
+  async getNameVerificationRequests(adminId: string) {
+    await this.checkAdmin(adminId);
+    
+    return (this.prisma as any).nameVerification.findMany({
+      where: { status: 'pending' },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            profileMode: true,
+            university: { 
+              select: { 
+                name: true,
+                country: {
+                  select: {
+                    name: true,
+                    code: true,
+                  },
+                },
+              } 
+            },
+            organization: {
+              select: {
+                name: true,
+                country: {
+                  select: {
+                    name: true,
+                    code: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  async approveNameVerification(verificationId: string, adminId: string) {
+    await this.checkAdmin(adminId);
+
+    const verification = await (this.prisma as any).nameVerification.findUnique({
+      where: { id: verificationId },
+      include: { user: true },
+    });
+
+    if (!verification) {
+      throw new NotFoundException('Name verification request not found');
+    }
+
+    // Update verification
+    await (this.prisma as any).nameVerification.update({
+      where: { id: verificationId },
+      data: {
+        status: 'approved',
+        reviewedBy: adminId,
+        reviewedAt: new Date(),
+      },
+    });
+
+    // Update user - set nameVerified = true
+    await this.prisma.user.update({
+      where: { id: verification.userId },
+      data: {
+        nameVerified: true,
+      } as any,
+    });
+
+    // Send notification
+    if (verification.user.email) {
+      await this.mailService.sendNameVerificationNotification(verification.user.email, true);
+    }
+
+    // Log
+    await this.prisma.auditLog.create({
+      data: {
+        actorId: adminId,
+        action: 'name_verification_approved',
+        entityType: 'nameVerification',
+        entityId: verificationId,
+        metadata: { userId: verification.userId } as any,
+      },
+    });
+
+    return { message: 'Name verification approved successfully' };
+  }
+
+  async rejectNameVerification(verificationId: string, adminId: string, reason?: string) {
+    await this.checkAdmin(adminId);
+
+    const verification = await (this.prisma as any).nameVerification.findUnique({
+      where: { id: verificationId },
+      include: { user: true },
+    });
+
+    if (!verification) {
+      throw new NotFoundException('Name verification request not found');
+    }
+
+    // Update verification
+    await (this.prisma as any).nameVerification.update({
+      where: { id: verificationId },
+      data: {
+        status: 'rejected',
+        reviewedBy: adminId,
+        reviewedAt: new Date(),
+      },
+    });
+
+    // Send notification
+    if (verification.user.email) {
+      await this.mailService.sendNameVerificationNotification(verification.user.email, false, reason);
+    }
+
+    // Log
+    await this.prisma.auditLog.create({
+      data: {
+        actorId: adminId,
+        action: 'name_verification_rejected',
+        entityType: 'nameVerification',
+        entityId: verificationId,
+        metadata: { userId: verification.userId, reason } as any,
+      },
+    });
+
+    return { message: 'Name verification rejected successfully' };
+  }
+
   async approveAlumni(approvalId: string, adminId: string) {
     await this.checkAdmin(adminId);
 
@@ -77,14 +210,15 @@ export class AdminService {
       },
     });
 
-    // Update user - set profileMode to alumni when approved
+    // Update user - set isAlumni = true and alumniVerified = true when approved (alumni verification badge)
     await this.prisma.user.update({
       where: { id: approval.userId },
       data: {
-        profileMode: 'alumni',
+        isAlumni: true,
+        alumniVerified: true, // Grant alumni verification badge after admin approval
         isVerified: true,
         verificationStatus: 'approved',
-      },
+      } as any,
     });
 
     // Send notification
@@ -191,14 +325,18 @@ export class AdminService {
       },
     });
 
-    // Update user - set profileMode to teacher when approved
+    // Update user - set isTeacher badge and teacherVerified when approved
     await this.prisma.user.update({
       where: { id: approval.userId },
       data: {
-        profileMode: 'teacher',
+        isTeacher: true,
+        teacherVerified: true,
         isVerified: true,
         verificationStatus: 'approved',
-      },
+        // Also set alumni badge if not already set
+        isAlumni: true,
+        alumniVerified: true,
+      } as any,
     });
 
     // Send notification (if mail service has teacher notification method)
@@ -460,21 +598,15 @@ export class AdminService {
         crush: true,
         circles: true,
         feed: true,
-        research: true,
+        // Note: research is NOT a student feature - it's badge-based (teacher badge) and platform-level
       };
-      const defaultAlumniFeatures = {
+      // Note: Alumni features are now part of professionalFeatures since all professionals are alumni
+      const defaultProfessionalFeatures = {
         marketplace: true,
         career: true,
         circles: true,
         feed: true,
-        research: true,
-      };
-      const defaultTeacherFeatures = {
-        marketplace: true,
-        career: true,
-        circles: true,
-        feed: true,
-        research: true,
+        research: false, // Research is badge-based (teacher badge)
       };
 
       settings = await this.prisma.settings.create({
@@ -487,9 +619,9 @@ export class AdminService {
           enableStudentRegistration: true,
           enableAlumniRegistration: true,
           enableTeacherRegistration: true,
+          enableProfessionalRegistration: true,
           studentFeatures: defaultStudentFeatures as any,
-          alumniFeatures: defaultAlumniFeatures as any,
-          teacherFeatures: defaultTeacherFeatures as any,
+          professionalFeatures: defaultProfessionalFeatures as any,
         },
       });
     }
@@ -502,25 +634,17 @@ export class AdminService {
         crush: true,
         circles: true,
         feed: true,
-        research: true,
+        // Note: research is NOT a student feature - it's badge-based (teacher badge) and platform-level
       };
     }
-    if (!settings.alumniFeatures) {
-      settings.alumniFeatures = {
+    if (!settings.professionalFeatures) {
+      // Professional features = Alumni features (since all professionals are alumni)
+      settings.professionalFeatures = {
         marketplace: true,
         career: true,
         circles: true,
         feed: true,
-        research: true,
-      };
-    }
-    if (!settings.teacherFeatures) {
-      settings.teacherFeatures = {
-        marketplace: true,
-        career: true,
-        circles: true,
-        feed: true,
-        research: true,
+        research: false, // Research is badge-based
       };
     }
 
@@ -543,9 +667,10 @@ export class AdminService {
         enableStudentRegistration: settingsData.enableStudentRegistration !== undefined ? settingsData.enableStudentRegistration : true,
         enableAlumniRegistration: settingsData.enableAlumniRegistration !== undefined ? settingsData.enableAlumniRegistration : true,
         enableTeacherRegistration: settingsData.enableTeacherRegistration !== undefined ? settingsData.enableTeacherRegistration : true,
+        enableProfessionalRegistration: settingsData.enableProfessionalRegistration !== undefined ? settingsData.enableProfessionalRegistration : true,
         studentFeatures: settingsData.studentFeatures || null,
-        alumniFeatures: settingsData.alumniFeatures || null,
-        teacherFeatures: settingsData.teacherFeatures || null,
+        professionalFeatures: settingsData.professionalFeatures || null,
+        badgeSpaces: settingsData.badgeSpaces || null,
       } as any,
       create: {
         id: 'platform',
@@ -556,28 +681,29 @@ export class AdminService {
         enableStudentRegistration: settingsData.enableStudentRegistration !== undefined ? settingsData.enableStudentRegistration : true,
         enableAlumniRegistration: settingsData.enableAlumniRegistration !== undefined ? settingsData.enableAlumniRegistration : true,
         enableTeacherRegistration: settingsData.enableTeacherRegistration !== undefined ? settingsData.enableTeacherRegistration : true,
+        enableProfessionalRegistration: settingsData.enableProfessionalRegistration !== undefined ? settingsData.enableProfessionalRegistration : true,
         studentFeatures: settingsData.studentFeatures || {
           marketplace: true,
           career: true,
           crush: true,
           circles: true,
           feed: true,
-          research: true,
+          research: false, // Research is badge-based
         },
-        alumniFeatures: settingsData.alumniFeatures || {
+        professionalFeatures: settingsData.professionalFeatures || {
           marketplace: true,
           career: true,
           circles: true,
           feed: true,
-          research: true,
+          research: false, // Research is badge-based (teacher badge space)
         },
-        teacherFeatures: settingsData.teacherFeatures || {
-          marketplace: true,
-          career: true,
-          circles: true,
-          feed: true,
-          research: true,
-        },
+        badgeSpaces: settingsData.badgeSpaces || null,
+        minAgeStudent: settingsData.minAgeStudent !== undefined ? settingsData.minAgeStudent : null,
+        maxAgeStudent: settingsData.maxAgeStudent !== undefined ? settingsData.maxAgeStudent : null,
+        minAgeProfessional: settingsData.minAgeProfessional !== undefined ? settingsData.minAgeProfessional : null,
+        maxAgeProfessional: settingsData.maxAgeProfessional !== undefined ? settingsData.maxAgeProfessional : null,
+        termsMessage: settingsData.termsMessage || null,
+        termsLink: settingsData.termsLink || null,
       },
     });
 
@@ -589,6 +715,11 @@ export class AdminService {
         entityId: 'platform',
       },
     });
+
+    // Invalidate cache and re-cache updated settings
+    await this.cacheService.invalidateSettings();
+    await this.cacheService.invalidateAllUserFeatures(); // Invalidate all user features since settings changed
+    await this.cacheService.cacheSettings(settings);
 
     return settings;
   }
@@ -608,26 +739,12 @@ export class AdminService {
           circles: true,
           feed: true,
         };
-      } else if (profileMode === 'alumni') {
-        return {
-          marketplace: true,
-          career: true,
-          circles: true,
-          feed: true,
-        };
-      } else if (profileMode === 'teacher') {
-        return {
-          marketplace: true,
-          career: true,
-          circles: true,
-          feed: true,
-          research: true,
-        };
       }
       return {};
     }
 
     // Return features for the specific profile mode
+    // Teacher is now a badge, not a profileMode - removed
     if (profileMode === 'student') {
       return (settings.studentFeatures as any) || {
         marketplace: true,
@@ -636,20 +753,12 @@ export class AdminService {
         circles: true,
         feed: true,
       };
-    } else if (profileMode === 'alumni') {
-      return (settings.alumniFeatures as any) || {
+    } else if (profileMode === 'professional') {
+      return (settings.professionalFeatures as any) || {
         marketplace: true,
         career: true,
         circles: true,
         feed: true,
-      };
-    } else if (profileMode === 'teacher') {
-      return (settings.teacherFeatures as any) || {
-        marketplace: true,
-        career: true,
-        circles: true,
-        feed: true,
-        research: true,
       };
     }
 
@@ -698,6 +807,43 @@ export class AdminService {
         totalPages: Math.ceil(total / limit),
       },
     };
+  }
+
+  async getUniversities(adminId: string, countryId?: string) {
+    await this.checkAdmin(adminId);
+    
+    const where: any = {};
+    if (countryId) {
+      where.countryId = countryId;
+    }
+    
+    const universities = await this.prisma.university.findMany({
+      where,
+      include: {
+        country: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+            active: true,
+          },
+        },
+      },
+      orderBy: {
+        name: 'asc',
+      },
+    });
+    
+    return universities.map((u: any) => ({
+      id: u.id,
+      name: u.name,
+      domain: u.domain,
+      countryId: u.countryId,
+      country: u.country,
+      active: u.active,
+      allowCrossCampus: u.allowCrossCampus,
+      createdAt: u.createdAt,
+    }));
   }
 
   async createUniversity(adminId: string, data: any) {
@@ -843,7 +989,201 @@ export class AdminService {
     return { message: 'University deleted successfully' };
   }
 
-  async getUniversityRequests(adminId: string, status?: string) {
+  // Organization Management
+  async getOrganizations(adminId: string, countryId?: string) {
+    await this.checkAdmin(adminId);
+
+    const where: any = {};
+    if (countryId) {
+      where.countryId = countryId;
+    }
+
+    return (this.prisma as any).organization.findMany({
+      where,
+      include: {
+        country: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+          },
+        },
+        _count: {
+          select: {
+            users: true,
+          },
+        },
+      },
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  async createOrganization(adminId: string, data: any) {
+    await this.checkAdmin(adminId);
+
+    if (!data.name || !data.domain) {
+      throw new BadRequestException('Name and domain are required');
+    }
+
+    // Validate country if provided
+    if (data.countryId) {
+      const country = await (this.prisma as any).country.findUnique({
+        where: { id: data.countryId },
+      });
+
+      if (!country) {
+        throw new BadRequestException('Country not found');
+      }
+
+      if (!country.active) {
+        throw new BadRequestException('Country is not active. Please activate the country first.');
+      }
+    }
+
+    // Check if domain already exists (in both universities and organizations)
+    const existingUniversity = await this.prisma.university.findUnique({
+      where: { domain: data.domain },
+    });
+
+    if (existingUniversity) {
+      throw new ForbiddenException('A university with this domain already exists');
+    }
+
+    const existingOrg = await (this.prisma as any).organization.findUnique({
+      where: { domain: data.domain },
+    });
+
+    if (existingOrg) {
+      throw new ForbiddenException('An organization with this domain already exists');
+    }
+
+    const organization = await (this.prisma as any).organization.create({
+      data: {
+        name: data.name,
+        domain: data.domain,
+        countryId: data.countryId || null,
+        active: data.active !== undefined ? data.active : true,
+        type: data.type || null,
+        website: data.website || null,
+        description: data.description || null,
+      },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        actorId: adminId,
+        action: 'organization_created',
+        entityType: 'organization',
+        entityId: organization.id,
+      },
+    });
+
+    return organization;
+  }
+
+  async updateOrganization(adminId: string, id: string, data: any) {
+    await this.checkAdmin(adminId);
+
+    const organization = await (this.prisma as any).organization.findUnique({
+      where: { id },
+    });
+
+    if (!organization) {
+      throw new NotFoundException('Organization not found');
+    }
+
+    // Check if domain is being changed and if new domain already exists
+    if (data.domain && data.domain !== organization.domain) {
+      const existingUniversity = await this.prisma.university.findUnique({
+        where: { domain: data.domain },
+      });
+
+      if (existingUniversity) {
+        throw new ForbiddenException('A university with this domain already exists');
+      }
+
+      const existingOrg = await (this.prisma as any).organization.findUnique({
+        where: { domain: data.domain },
+      });
+
+      if (existingOrg) {
+        throw new ForbiddenException('An organization with this domain already exists');
+      }
+    }
+
+    // Validate country if countryId is being updated
+    if (data.countryId) {
+      const country = await (this.prisma as any).country.findUnique({
+        where: { id: data.countryId },
+      });
+
+      if (!country) {
+        throw new BadRequestException('Country not found');
+      }
+
+      if (!country.active) {
+        throw new BadRequestException('Country is not active. Please activate the country first.');
+      }
+    }
+
+    const updated = await (this.prisma as any).organization.update({
+      where: { id },
+      data: {
+        ...(data.name && { name: data.name }),
+        ...(data.domain && { domain: data.domain }),
+        ...(data.countryId !== undefined && { countryId: data.countryId }),
+        ...(data.active !== undefined && { active: data.active }),
+        ...(data.type !== undefined && { type: data.type }),
+        ...(data.website !== undefined && { website: data.website }),
+        ...(data.description !== undefined && { description: data.description }),
+      },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        actorId: adminId,
+        action: 'organization_updated',
+        entityType: 'organization',
+        entityId: id,
+      },
+    });
+
+    return updated;
+  }
+
+  async deleteOrganization(adminId: string, id: string) {
+    await this.checkAdmin(adminId);
+
+    const organization = await (this.prisma as any).organization.findUnique({
+      where: { id },
+      include: { users: { take: 1 } },
+    });
+
+    if (!organization) {
+      throw new NotFoundException('Organization not found');
+    }
+
+    if (organization.users.length > 0) {
+      throw new ForbiddenException('Cannot delete organization with existing users. Deactivate it instead.');
+    }
+
+    await (this.prisma as any).organization.delete({
+      where: { id },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        actorId: adminId,
+        action: 'organization_deleted',
+        entityType: 'organization',
+        entityId: id,
+      },
+    });
+
+    return { message: 'Organization deleted successfully' };
+  }
+
+  async getInstitutionRequests(adminId: string, status?: string) {
     await this.checkAdmin(adminId);
 
     const where: any = {};
@@ -851,7 +1191,7 @@ export class AdminService {
       where.status = status;
     }
 
-    const requests = await this.prisma.universityRequest.findMany({
+    const requests = await (this.prisma as any).institutionRequest.findMany({
       where,
       include: {
         country: {
@@ -865,10 +1205,12 @@ export class AdminService {
       orderBy: { createdAt: 'desc' },
     });
 
-    // Map to include country name for backward compatibility
-    return requests.map((request) => ({
+    // Map to include country name and backward compatibility
+    return requests.map((request: any) => ({
       id: request.id,
-      universityName: request.universityName,
+      institutionName: request.institutionName,
+      institutionType: request.institutionType, // "university" | "organization" | null
+      universityName: request.institutionName, // Backward compatibility
       country: request.country?.name || 'Not assigned',
       countryId: request.countryId,
       studentEmail: request.studentEmail,
@@ -882,29 +1224,38 @@ export class AdminService {
     }));
   }
 
-  async approveUniversityRequest(adminId: string, requestId: string) {
+  async approveInstitutionRequest(adminId: string, requestId: string, institutionType: 'university' | 'organization') {
     await this.checkAdmin(adminId);
 
-    const request = await this.prisma.universityRequest.findUnique({
+    const request = await (this.prisma as any).institutionRequest.findUnique({
       where: { id: requestId },
     });
 
     if (!request) {
-      throw new NotFoundException('University request not found');
+      throw new NotFoundException('Institution request not found');
     }
 
     if (request.status !== 'pending') {
       throw new ForbiddenException('This request has already been processed');
     }
 
-    // Check if university already exists
-    const existing = await this.prisma.university.findFirst({
+    // Validate institution type
+    if (!institutionType || !['university', 'organization'].includes(institutionType)) {
+      throw new BadRequestException('Invalid institution type. Must be "university" or "organization"');
+    }
+
+    // Check if institution already exists
+    const existingUniversity = await this.prisma.university.findFirst({
       where: { domain: request.domain },
     });
 
-    if (existing) {
+    const existingOrganization = await this.prisma.organization.findFirst({
+      where: { domain: request.domain },
+    });
+
+    if (existingUniversity || existingOrganization) {
       // Update request status
-      await this.prisma.universityRequest.update({
+      await (this.prisma as any).institutionRequest.update({
         where: { id: requestId },
         data: {
           status: 'rejected',
@@ -912,12 +1263,12 @@ export class AdminService {
           reviewedAt: new Date(),
         },
       });
-      throw new ForbiddenException('A university with this domain already exists');
+      throw new ForbiddenException('An institution with this domain already exists');
     }
 
     // Validate that country exists and is active
     if (!request.countryId) {
-      throw new BadRequestException('University request does not have a country assigned. Please assign a country first.');
+      throw new BadRequestException('Institution request does not have a country assigned. Please assign a country first.');
     }
 
     const country = await this.prisma.country.findUnique({
@@ -932,22 +1283,37 @@ export class AdminService {
       throw new BadRequestException('Country is not active. Please activate the country first before approving this request.');
     }
 
-    // Create the university automatically when approving the request
-    const university = await this.prisma.university.create({
-      data: {
-        name: request.universityName,
-        domain: request.domain,
-        countryId: request.countryId,
-        active: true,
-        allowCrossCampus: false,
-      },
-    });
+    let createdInstitution: any;
 
-    // Update request status to approved
-    await this.prisma.universityRequest.update({
+    // Create the institution based on type
+    if (institutionType === 'university') {
+      createdInstitution = await this.prisma.university.create({
+        data: {
+          name: request.institutionName,
+          domain: request.domain,
+          countryId: request.countryId,
+          active: true,
+          allowCrossCampus: false,
+        },
+      });
+    } else {
+      // organization
+      createdInstitution = await this.prisma.organization.create({
+        data: {
+          name: request.institutionName,
+          domain: request.domain,
+          countryId: request.countryId,
+          active: true,
+        },
+      });
+    }
+
+    // Update request status to approved with institution type
+    await (this.prisma as any).institutionRequest.update({
       where: { id: requestId },
       data: {
         status: 'approved',
+        institutionType: institutionType,
         reviewedBy: adminId,
         reviewedAt: new Date(),
       },
@@ -956,9 +1322,10 @@ export class AdminService {
     // Send email notification to the user who requested
     if (request.studentEmail) {
       try {
-        await this.mailService.sendUniversityRequestNotification(
+        await this.mailService.sendInstitutionRequestNotification(
           request.studentEmail,
-          request.universityName,
+          request.institutionName,
+          institutionType,
           true, // approved
         );
       } catch (error) {
@@ -971,13 +1338,14 @@ export class AdminService {
     await this.prisma.auditLog.create({
       data: {
         actorId: adminId,
-        action: 'university_request_approved',
-        entityType: 'university_request',
+        action: 'institution_request_approved',
+        entityType: 'institution_request',
         entityId: requestId,
         metadata: {
           requestId: request.id,
-          universityId: university.id,
-          universityName: request.universityName,
+          institutionId: createdInstitution.id,
+          institutionName: request.institutionName,
+          institutionType: institutionType,
           domain: request.domain,
           countryId: request.countryId,
         },
@@ -985,28 +1353,30 @@ export class AdminService {
     });
 
     return {
-      message: 'University request approved and university created successfully. The requester has been notified via email.',
+      message: `Institution request approved and ${institutionType} created successfully. The requester has been notified via email.`,
       requestId: request.id,
-      universityId: university.id,
+      institutionId: createdInstitution.id,
+      institutionType: institutionType,
     };
   }
 
-  async rejectUniversityRequest(adminId: string, requestId: string) {
+  async rejectInstitutionRequest(adminId: string, requestId: string) {
     await this.checkAdmin(adminId);
 
-    const request = await this.prisma.universityRequest.findUnique({
+    const request = await (this.prisma as any).institutionRequest.findUnique({
       where: { id: requestId },
     });
 
     if (!request) {
-      throw new NotFoundException('University request not found');
+      throw new NotFoundException('Institution request not found');
     }
 
     if (request.status !== 'pending') {
       throw new ForbiddenException('This request has already been processed');
     }
 
-    await this.prisma.universityRequest.update({
+    // Update request status
+    await (this.prisma as any).institutionRequest.update({
       where: { id: requestId },
       data: {
         status: 'rejected',
@@ -1015,30 +1385,44 @@ export class AdminService {
       },
     });
 
-    // Send email notification to the user who requested
+    // Send email notification
     if (request.studentEmail) {
       try {
-        await this.mailService.sendUniversityRequestNotification(
+        await this.mailService.sendInstitutionRequestNotification(
           request.studentEmail,
-          request.universityName,
+          request.institutionName,
+          null, // type not set for rejected
           false, // rejected
         );
       } catch (error) {
         console.error('Failed to send rejection email:', error);
-        // Don't fail the rejection if email fails
       }
     }
 
+    // Log the action
     await this.prisma.auditLog.create({
       data: {
         actorId: adminId,
-        action: 'university_request_rejected',
-        entityType: 'university_request',
+        action: 'institution_request_rejected',
+        entityType: 'institution_request',
         entityId: requestId,
+        metadata: {
+          requestId: request.id,
+          institutionName: request.institutionName,
+          domain: request.domain,
+        },
       },
     });
 
-    return { message: 'University request rejected' };
+    return {
+      message: 'Institution request rejected. The requester has been notified via email.',
+      requestId: request.id,
+    };
+  }
+
+  // Backward compatibility
+  async rejectUniversityRequest(adminId: string, requestId: string) {
+    return this.rejectInstitutionRequest(adminId, requestId);
   }
 
   async cleanupStuckUsers(adminId: string) {
@@ -1105,6 +1489,195 @@ export class AdminService {
       message: `Cleaned up ${deletedCount} stuck user(s)`,
       deletedCount,
     };
+  }
+
+  // Badge Management
+  async getBadgeRequests(adminId: string, status?: 'pending' | 'verified' | 'all') {
+    await this.checkAdmin(adminId);
+
+    const where: any = {};
+    if (status && status !== 'all') {
+      where.verified = status === 'verified';
+    }
+
+    return (this.prisma as any).userBadge.findMany({
+      where,
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            profileMode: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async verifyBadge(adminId: string, badgeId: string) {
+    await this.checkAdmin(adminId);
+
+    const badge = await (this.prisma as any).userBadge.findUnique({
+      where: { id: badgeId },
+      include: { user: true },
+    });
+
+    if (!badge) {
+      throw new NotFoundException('Badge not found');
+    }
+
+    if (badge.verified) {
+      throw new BadRequestException('Badge is already verified');
+    }
+
+    // Update badge to verified
+    await (this.prisma as any).userBadge.update({
+      where: { id: badgeId },
+      data: {
+        verified: true,
+        verifiedAt: new Date(),
+        verifiedBy: adminId,
+      },
+    });
+
+    // Log in audit
+    await this.prisma.auditLog.create({
+      data: {
+        actorId: adminId,
+        action: 'badge_verified',
+        entityType: 'user_badge',
+        entityId: badgeId,
+        metadata: {
+          userId: badge.userId,
+          badgeType: badge.badgeType,
+        },
+      },
+    });
+
+    // Invalidate user features cache since badge was verified
+    await this.cacheService.invalidateUserFeatures(badge.userId);
+
+    return { message: 'Badge verified successfully' };
+  }
+
+  async rejectBadge(adminId: string, badgeId: string, reason?: string) {
+    await this.checkAdmin(adminId);
+
+    const badge = await (this.prisma as any).userBadge.findUnique({
+      where: { id: badgeId },
+      include: { user: true },
+    });
+
+    if (!badge) {
+      throw new NotFoundException('Badge not found');
+    }
+
+    // Delete the badge (rejection means removing it)
+    await (this.prisma as any).userBadge.delete({
+      where: { id: badgeId },
+    });
+
+    // Log in audit
+    await this.prisma.auditLog.create({
+      data: {
+        actorId: adminId,
+        action: 'badge_rejected',
+        entityType: 'user_badge',
+        entityId: badgeId,
+        metadata: {
+          userId: badge.userId,
+          badgeType: badge.badgeType,
+          reason: reason || 'Not provided',
+        },
+      },
+    });
+
+    // Invalidate user features cache since badge was removed
+    await this.cacheService.invalidateUserFeatures(badge.userId);
+
+    return { message: 'Badge rejected and removed' };
+  }
+
+  async removeBadge(adminId: string, badgeId: string) {
+    await this.checkAdmin(adminId);
+
+    const badge = await (this.prisma as any).userBadge.findUnique({
+      where: { id: badgeId },
+    });
+
+    if (!badge) {
+      throw new NotFoundException('Badge not found');
+    }
+
+    await (this.prisma as any).userBadge.delete({
+      where: { id: badgeId },
+    });
+
+    // Log in audit
+    await this.prisma.auditLog.create({
+      data: {
+        actorId: adminId,
+        action: 'badge_removed',
+        entityType: 'user_badge',
+        entityId: badgeId,
+        metadata: {
+          userId: badge.userId,
+          badgeType: badge.badgeType,
+        },
+      },
+    });
+
+    // Invalidate user features cache since badge was removed
+    await this.cacheService.invalidateUserFeatures(badge.userId);
+
+    return { message: 'Badge removed successfully' };
+  }
+
+  /**
+   * Reload cache - invalidate and rebuild cache
+   */
+  async reloadCache(adminId: string) {
+    await this.checkAdmin(adminId);
+
+    // Get fresh settings from database
+    const settings = await this.prisma.settings.findUnique({
+      where: { id: 'platform' },
+    });
+
+    if (settings) {
+      // Re-cache settings
+      await this.cacheService.cacheSettings(settings);
+    }
+
+    // Invalidate all user features (they will be rebuilt on next request)
+    await this.cacheService.invalidateAllUserFeatures();
+
+    // Log in audit
+    await this.prisma.auditLog.create({
+      data: {
+        actorId: adminId,
+        action: 'cache_reloaded',
+        entityType: 'cache',
+        entityId: 'all',
+      },
+    });
+
+    const stats = await this.cacheService.getCacheStats();
+
+    return {
+      message: 'Cache reloaded successfully',
+      stats,
+    };
+  }
+
+  /**
+   * Get cache statistics
+   */
+  async getCacheStats(adminId: string) {
+    await this.checkAdmin(adminId);
+    return this.cacheService.getCacheStats();
   }
 }
 

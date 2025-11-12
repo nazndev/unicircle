@@ -2,6 +2,7 @@ import { Injectable, ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { AuthGuard } from '@nestjs/passport';
 import { IS_PUBLIC_KEY } from '../../../common/decorators/public.decorator';
+import { MOBILE_API_KEY } from '../../../common/decorators/mobile-api.decorator';
 
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
@@ -11,6 +12,11 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+
+    const isMobileApi = this.reflector.getAllAndOverride<boolean>(MOBILE_API_KEY, [
       context.getHandler(),
       context.getClass(),
     ]);
@@ -30,11 +36,13 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
         } catch (error) {
           // If validation fails, allow request to proceed (public endpoint)
           // User object will be undefined, which is fine for public endpoints
+          // Note: MobileApiGuard will handle API key validation separately
           return true;
         }
       }
       
       // No token, allow public access
+      // Note: If isMobileApi is true, MobileApiGuard will validate the API key
       return true;
     }
     

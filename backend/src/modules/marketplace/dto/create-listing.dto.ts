@@ -2,14 +2,32 @@ import { IsString, IsNotEmpty, IsIn, IsOptional, IsNumber, IsArray, IsUUID } fro
 import { ApiProperty } from '@nestjs/swagger';
 
 export class CreateListingDto {
-  @ApiProperty({ enum: ['rent', 'sale'] })
+  @ApiProperty({ 
+    enum: ['rent', 'sale', 'opportunity', 'service'],
+    description: 'Type of listing: rent (accommodation), sale (items), opportunity (distribution/entrepreneurship/campus roles), service (tutoring/freelancing)'
+  })
   @IsString()
-  @IsIn(['rent', 'sale'])
+  @IsIn(['rent', 'sale', 'opportunity', 'service'])
   type: string;
 
-  @ApiProperty({ enum: ['accommodation', 'electronics', 'books', 'furniture', 'other'] })
+  @ApiProperty({ 
+    enum: [
+      'accommodation',      // Room/seat/hostel/sublet
+      'flatmate_wanted',    // Find people to share
+      'electronics',        // Laptop, phone, gadgets
+      'books',              // Textbooks, novels
+      'furniture',          // Furniture items
+      'distribution',       // Distribution network opportunities
+      'entrepreneurship',   // Business/startup opportunities
+      'campus_opportunity', // Campus roles (moderator, event organizer, etc.)
+      'services',           // Tutoring, freelancing, consulting
+      'events',             // Event tickets, workshops
+      'other'               // Other items/opportunities
+    ],
+    description: 'Category of the listing'
+  })
   @IsString()
-  @IsIn(['accommodation', 'electronics', 'books', 'furniture', 'other'])
+  @IsIn(['accommodation', 'flatmate_wanted', 'electronics', 'books', 'furniture', 'distribution', 'entrepreneurship', 'campus_opportunity', 'services', 'events', 'other'])
   category: string;
 
   @ApiProperty({ example: 'Room for rent near campus' })
@@ -46,5 +64,13 @@ export class CreateListingDto {
   @IsOptional()
   @IsString()
   contactInfo?: string;
+
+  @ApiProperty({ 
+    required: false, 
+    description: 'Additional metadata for opportunities/services (requirements, duration, compensation type, etc.)',
+    example: { requirements: 'Must be 2nd year or above', duration: '6 months', compensationType: 'commission' }
+  })
+  @IsOptional()
+  metadata?: any;
 }
 

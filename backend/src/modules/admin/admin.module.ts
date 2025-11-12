@@ -2,9 +2,11 @@ import { Module } from '@nestjs/common';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 import { MailModule } from '../mail/mail.module';
+import { PrismaModule } from '../../prisma/prisma.module';
+import { CacheModule } from '../cache/cache.module';
 
 @Module({
-  imports: [MailModule],
+  imports: [PrismaModule, MailModule, CacheModule],
   controllers: [AdminController],
   providers: [AdminService],
   exports: [AdminService],

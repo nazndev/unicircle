@@ -36,5 +36,13 @@ export class UpdateListingDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @ApiProperty({ 
+    required: false, 
+    description: 'Additional metadata for opportunities/services (requirements, duration, compensation type, etc.)',
+    example: { requirements: 'Must be 2nd year or above', duration: '6 months', compensationType: 'commission' }
+  })
+  @IsOptional()
+  metadata?: any;
 }
 

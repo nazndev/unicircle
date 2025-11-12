@@ -1,8 +1,15 @@
 import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
 import Constants from 'expo-constants';
+import { generateRequestSignature, isRequestSigningEnabled } from '../utils/signature';
 
 const API_BASE_URL = Constants.expoConfig?.extra?.apiBaseUrl || 'http://localhost:3000/api';
+const MOBILE_API_KEY = Constants.expoConfig?.extra?.mobileApiKey || 'b55371dcdf9faf4235f83cfe385ad47c';
+// IMPORTANT: API Secret should NOT be in the app bundle in production
+// For request signing, we need a way to get the secret securely
+// Options: 1) Use a proxy server, 2) Use certificate pinning + server-side secret derivation
+// For now, we'll use a placeholder - in production, implement proper secret management
+const MOBILE_API_SECRET = Constants.expoConfig?.extra?.mobileApiSecret || '';
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -11,13 +18,43 @@ const apiClient = axios.create({
   },
 });
 
-// Add token to requests
+// Add token, API key, and request signature to requests
 apiClient.interceptors.request.use(
   async (config) => {
+    // Always add mobile API key for public endpoints
+    if (MOBILE_API_KEY) {
+      config.headers['x-api-key'] = MOBILE_API_KEY;
+    }
+    
+    // Add JWT token if available (for authenticated requests)
     const token = await SecureStore.getItemAsync('accessToken');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+      // If JWT token is present, skip request signing (JWT is sufficient)
+      return config;
     }
+    
+    // For public endpoints (no JWT), add request signature if enabled
+    if (isRequestSigningEnabled() && MOBILE_API_SECRET) {
+      const timestamp = Date.now().toString();
+      const method = (config.method || 'GET').toUpperCase();
+      const path = config.url?.replace(API_BASE_URL, '') || config.url || '';
+      const queryString = config.params ? new URLSearchParams(config.params).toString() : '';
+      const body = config.data ? (typeof config.data === 'string' ? config.data : JSON.stringify(config.data)) : '';
+      
+      const signature = generateRequestSignature(
+        method,
+        path,
+        queryString,
+        body,
+        timestamp,
+        MOBILE_API_SECRET,
+      );
+      
+      config.headers['x-timestamp'] = timestamp;
+      config.headers['x-signature'] = signature;
+    }
+    
     return config;
   },
   (error) => {

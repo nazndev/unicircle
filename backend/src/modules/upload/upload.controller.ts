@@ -18,6 +18,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth, ApiConsumes } from '@nestjs/swagg
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
+import { MobileApi } from '../../common/decorators/mobile-api.decorator';
 import { UploadService } from './upload.service';
 import { diskStorage } from 'multer';
 import { extname, join } from 'path';
@@ -32,8 +33,9 @@ export class UploadController {
   constructor(private readonly uploadService: UploadService) {}
 
   @Post('alumni-document')
-  @Public() // Allow public access for registration (users not logged in yet)
-  @ApiOperation({ summary: 'Upload alumni verification document (public for registration)' })
+  @Public()
+  @MobileApi() // Allow mobile app access for registration (users not logged in yet)
+  @ApiOperation({ summary: 'Upload alumni verification document (Mobile API only, for registration)' })
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(
     FileInterceptor('file', {
@@ -71,6 +73,52 @@ export class UploadController {
     // If user is authenticated, use their userId; otherwise, use null for temp storage
     const userId = user?.userId || null;
     return this.uploadService.uploadAlumniDocument(file, userId);
+  }
+
+  @Post('name-verification-document')
+  @ApiOperation({ summary: 'Upload name verification document' })
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: (req, file, cb) => {
+          const tempDir = join(process.cwd(), 'temp-uploads');
+          if (!fs.existsSync(tempDir)) {
+            fs.mkdirSync(tempDir, { recursive: true });
+          }
+          cb(null, tempDir);
+        },
+        filename: (req, file, cb) => {
+          const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+          cb(null, `name-verification-${uniqueSuffix}${extname(file.originalname)}`);
+        },
+      }),
+      fileFilter: (req, file, cb) => {
+        const allowedMimes = ['image/jpeg', 'image/png', 'application/pdf'];
+        if (allowedMimes.includes(file.mimetype)) {
+          cb(null, true);
+        } else {
+          cb(new Error('Only JPEG, PNG, and PDF files are allowed'), false);
+        }
+      },
+      limits: {
+        fileSize: 5 * 1024 * 1024, // 5MB
+      },
+    }),
+  )
+  async uploadNameVerificationDocument(@UploadedFile() file: Express.Multer.File, @CurrentUser() user: any) {
+    if (!file) {
+      throw new BadRequestException('No file uploaded');
+    }
+    if (!user?.userId) {
+      throw new BadRequestException('User must be authenticated');
+    }
+    try {
+      return await this.uploadService.uploadAlumniDocument(file, user.userId);
+    } catch (error: any) {
+      console.error('[UPLOAD] Error uploading name verification document:', error);
+      throw new BadRequestException(error.message || 'Failed to upload document');
+    }
   }
 
   @Post('marketplace-image')

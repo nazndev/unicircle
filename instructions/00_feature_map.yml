@@ -2,11 +2,12 @@
 name: UniCircle Feature Map
 description: >
   Functional blueprint for the UniCircle ecosystem.
-  UniCircle connects students, alumni, and teachers across universities.
-  It supports: student email onboarding, alumni/teacher manual onboarding, campus and cross-campus
-  crush/match, Circles (programme, batch, alumni), social feed, jobs/careers,
+  UniCircle connects students, alumni, teachers, and professionals across universities and organizations.
+  It supports: student/teacher university email onboarding, professional office email onboarding, alumni/teacher manual onboarding,
+  campus and cross-campus crush/match, Circles (programme, batch, alumni, professional), social feed, jobs/careers,
   research collaboration (teachers publish opportunities, students apply),
   marketplace for accommodation and used items, moderation, and monetization.
+  All organizations and domains are country-wise whitelisted for security and authenticity.
   This map is the source of truth for backend, mobile, and admin features.
 
 core_domains:
@@ -27,62 +28,69 @@ core_domains:
   - system_admin
   - revenue_model
 
+
 features:
 
   authentication:
-    goal: "Allow verified users to join with their institutional email OR alumni/teacher proof."
+    goal: "Allow verified users to join with their institutional email (university/office) OR alumni/teacher proof. All domains must be country-wise whitelisted."
     paths:
       student_flow:
-        description: "Current students with active campus email."
+        description: "Current students with active university email."
         steps:
-          - POST /auth/request-code
+          - POST /auth/request-code (with university email)
           - POST /auth/verify-code
-        result: "isVerified = true, verificationStatus = approved, immediate access"
-      alumni_flow:
-        description: "Alumni who no longer have campus email."
-        steps:
-          - POST /auth/alumni-register with:
-              - fullName
-              - personalEmail
-              - universityId
-              - documents[] (ID card, certificate, transcript)
-          - status set to pending_manual_review
-          - admin approves within SLA (24h)
-        result: "isVerified = true after admin approval"
-      teacher_flow_option1_university_email:
-        description: "Teachers with active university email (preferred, faster verification)."
+        result: "isVerified = true, verificationStatus = approved, universityEmailVerified = true, immediate access"
+        rules:
+          - Email domain must be whitelisted in Country → University mapping
+          - User gets universityEmailVerified badge
+      teacher_flow:
+        description: "Teachers with active university email. Teacher is a BADGE (isTeacher), not a profile mode."
         steps:
           - POST /auth/request-code (with university email)
           - POST /auth/verify-code
           - After verification, user selects "I'm a Teacher" during onboarding
-          - App calls PUT /me/profile-mode with profileMode=teacher and optional documents[]
-          - If documents provided, creates TeacherApproval for admin review
-          - If no documents, sets profileMode=teacher immediately (trusted university email)
-        result: "isVerified = true, profileMode = teacher, can publish research opportunities"
-      teacher_flow_option2_manual_registration:
-        description: "Teachers without university email or need manual verification."
+          - App calls POST /auth/teacher-register OR PUT /me/teacher-badge
+          - Sets isTeacher=true, teacherVerified=true, profileMode='student' (base role)
+        result: "isVerified = true, isTeacher = true, teacherVerified = true, profileMode = student, universityEmailVerified = true, research features enabled"
+        rules:
+          - Email domain must be whitelisted in Country → University mapping
+          - User gets universityEmailVerified badge and teacherVerified badge
+          - Teacher badge can be combined with any profile mode (student or professional)
+          - Research feature is automatically enabled when isTeacher=true
+          - Teachers are automatically alumni (isAlumni=true) if they have university affiliation
+      professional_flow:
+        description: "Professionals can register with either office email (organization) OR university email. After OTP verification, they select their institution from a combined list of organizations and universities."
         steps:
-          - POST /auth/teacher-register with:
-              - fullName
-              - email (personal email)
-              - universityId
-              - department
-              - documents[] (faculty ID, appointment letter, university verification)
-          - status set to pending_manual_review
-          - admin approves within SLA (24h)
-        result: "isVerified = true after admin approval, can publish research opportunities"
+          - POST /auth/request-code (with office email OR university email)
+          - POST /auth/verify-code
+          - If professional account type: Navigate to ProfessionalOnboardingScreen
+          - User selects organization OR university from combined list
+          - PUT /me (updates universityId or organizationId, sets profileMode = professional)
+          - Continue to PIN setup and profile completion
+        result: "isVerified = true, verificationStatus = approved, profileMode = professional, universityId OR organizationId set based on selection"
+        rules:
+          - Email domain must be whitelisted in Country → Organization mapping OR Country → University mapping
+          - User can select EITHER an organization OR a university during onboarding
+          - If university selected: universityId set, organizationId = null, universityEmailVerified = true
+          - If organization selected: organizationId set, universityId = null (unless previously set), officeEmailVerified = true
+          - Teachers who want professional features can select their university from the same dropdown
+          - This prevents redundancy - universities serve both students AND professionals
+          - Professionals can connect with others from the same organization or university
+      note: "Alumni and Teacher are BADGES/STATUSES, not profile modes. Alumni status (isAlumni boolean) is automatically granted when users transition from student to professional, or when directly registering as professional with university information. Teacher badge (isTeacher boolean) enables research features and can be combined with any profile mode (student or professional). Profile modes are: student | professional (base roles). Badges enable Spaces - specialized communities where badge holders can connect. Each badge type (teacher, engineer, doctor, etc.) gets its own dedicated space."
     endpoints:
       - POST /auth/request-code
       - POST /auth/verify-code
       - POST /auth/alumni-register
-      - POST /auth/teacher-register
       - POST /auth/refresh
       - DELETE /auth/logout
     rules:
-      - student_flow requires domain check
+      - All email domains (university and organization) must be country-wise whitelisted
+      - student_flow requires university domain check (country → university mapping)
+      - professional_flow requires organization domain check (country → organization mapping)
+      - teacher_flow requires university domain check (country → university mapping)
       - alumni_flow requires at least one document (graduation proof)
-      - teacher_flow requires at least one document (faculty proof)
       - unapproved or pending users can read public content but cannot post, crush, or chat
+      - Verified email domains grant badges: universityEmailVerified or officeEmailVerified
     admin_review:
       sla_hours: 24
       endpoints:
@@ -94,11 +102,12 @@ features:
         - POST /admin/teacher-requests/:id/reject
 
   user_profile:
-    goal: "Maintain a single identity that can evolve: student → alumni (one-way), student → teacher (with verification), alumni → teacher (with verification)."
+    goal: "Maintain a single identity that can evolve with verification. Users can have multiple affiliations: university (student/teacher) and organization (professional). Alumni and Teacher are BADGES/STATUSES (isAlumni, isTeacher booleans), not profile modes. Profile modes are base roles: student | professional. Original university affiliation is preserved when transitioning to professional. Badges enable Spaces - specialized communities where verified badge holders can connect, share stories, and collaborate. Each badge type (teacher, engineer, doctor, researcher, intern, etc.) gets its own dedicated space."
     fields:
       - name
       - email
-      - universityId
+      - universityId           # Original university (preserved even when switching to professional)
+      - organizationId          # Current organization (for professionals)
       - department
       - programme
       - semester_or_batch
@@ -106,95 +115,149 @@ features:
       - avatarUrl
       - interests
       - allowCrossCampus
-      - profileMode            # student | alumni | teacher
+      - profileMode            # student | professional (base roles - teacher is a badge, not a profile mode)
+      - isAlumni               # boolean - Alumni badge (automatically set when transitioning from student to professional, or when directly registering as professional with university info)
+      - alumniVerified         # boolean - Alumni verification badge
+      - isTeacher              # boolean - Teacher badge (enables research features, grants access to Research Space, can be combined with any profile mode)
+      - teacherVerified         # boolean - Teacher verification badge
+      - badges[]                # UserBadge[] - Generic badge system (teacher, engineer, doctor, researcher, intern, etc.)
+      - spaces[]                # Array of spaces user has access to (based on verified badges) - returned in GET /me/features
       - currentStatus          # studying | looking_for_internship | looking_for_job | working | teaching
       - headline               # professional tagline
       - experience             # list/json
       - skills                 # list/json
-      - researchInterests      # list/json (for teachers)
-      - registrationSource     # student_email | alumni_manual | teacher_manual
+      - researchInterests      # list/json (for users with isTeacher=true)
+      - registrationSource     # student_email | professional_email
       - verificationStatus     # pending | approved | rejected
-      - documents              # uploaded proofs for alumni_manual or teacher_manual
+      - documents              # uploaded proofs for alumni verification (when directly registering as professional with university info)
+      - universityEmailVerified # boolean - badge for university email verification
+      - officeEmailVerified     # boolean - badge for office email verification
     actions:
       - GET /me
+      - GET /me/features        # Returns profile features + available spaces based on verified badges
       - PUT /me
       - PUT /me/profile-mode    # supports profile transitions with verification
       - DELETE /me
+    badge_management:
+      - GET /badges/me          # Get all badges for current user
+      - GET /badges/types       # Get all available badge types
+      - POST /badges            # Add a badge (unverified by default)
+      - PUT /badges/:id         # Update badge documents/metadata (unverified badges only)
+      - DELETE /badges/:id      # Remove badge (unverified badges only)
+      - Note: Verified badges grant access to badge spaces (if enabled in settings)
     transition_logic:
-      student_to_alumni:
-        trigger: user graduates
+      note: "Alumni and Teacher are BADGES/STATUSES, not profile modes. Profile modes are base roles: student | professional. Users automatically become alumni (isAlumni=true) when transitioning from student to professional, or when directly registering as professional with university info. Teacher badge (isTeacher=true) enables research features and can be combined with any profile mode."
+      add_teacher_badge:
+        trigger: user wants to add teacher badge (enables research features)
         steps:
-          - user opens Settings → Change profile type → Alumni
-          - app shows warning: "This is a permanent change. You cannot switch back to student."
-          - user confirms and provides graduation proof (documents[])
-          - app calls PUT /me/profile-mode with documents[]
-          - backend sets verificationStatus=pending, creates AlumniApproval if needed
-          - admin approves → user gets alumni features
+          - user opens Settings → Badges → Add Teacher Badge
+          - app calls PUT /me/teacher-badge with universityId (if needed)
+          - backend verifies university email domain, sets isTeacher=true, teacherVerified=true
+          - backend automatically sets isAlumni=true if user has university affiliation
+        result: "isTeacher = true, teacherVerified = true, research features enabled, access to Research Space, profileMode unchanged (can be student or professional)"
         rules:
-          - ONE-WAY: Cannot switch back to student
-          - Requires verification (graduation certificate, transcript, or ID card)
-          - Keep old data (crushes, posts, circles)
-          - Alumni can be professionals (no separate professional mode needed)
-      student_to_teacher:
-        trigger: user becomes faculty member (with or without university email)
+          - Teacher badge requires university email verification
+          - Can be combined with any profile mode (student or professional)
+          - Research feature is automatically enabled when isTeacher=true
+          - User gets access to "Research Space" (if enabled in settings) where they can connect with students who have researcher badge
+      student_to_professional:
+        trigger: student gets a job and wants to switch to professional profile
         steps:
-          - user opens Settings → Change profile type → Teacher
-          - app shows warning: "Requires faculty verification. You can switch to alumni later if you leave teaching."
-          - user provides faculty proof (documents[]) and optionally updates universityId
-          - app calls PUT /me/profile-mode with documents[] and optional universityId
-          - if user has university email domain: immediate approval (trusted)
-          - if user has personal email: creates TeacherApproval for admin review
-          - admin approves → user gets teacher features (can publish research)
+          - user opens Settings → Change profile type → Professional
+          - user MUST use office email (e.g., @bat.com, @unilever.com)
+          - app calls POST /auth/request-code with office email
+          - backend verifies organization domain (must be whitelisted in country → organization mapping)
+          - app calls PUT /me/profile-mode with profileMode=professional and organizationId
+          - backend sets profileMode=professional, organizationId, officeEmailVerified=true
+          - backend automatically sets isAlumni=true (student transitioning to professional = alumni)
+        result: "profileMode = professional, isAlumni = true, officeEmailVerified = true, organizationId set, universityId preserved"
         rules:
-          - Can use university email (OTP flow) OR manual registration
-          - Requires verification if using personal email
-          - University email domain = trusted, immediate approval
-          - Can switch to alumni later if leaving teaching
-          - Can change universityId when switching to teacher
-      alumni_to_teacher:
-        trigger: alumni becomes faculty member
+          - Professionals MUST register with organization email (no manual registration)
+          - Requires office email verification (domain must be whitelisted)
+          - universityId is PRESERVED (user remains alumni of original university)
+          - isAlumni automatically set to true (user is now alumni of their university)
+          - User can still access alumni circles and features
+          - User gets officeEmailVerified badge
+          - Can connect with other professionals from same organization
+      direct_teacher_registration:
+        trigger: user directly registers as teacher (not from student)
         steps:
-          - user opens Settings → Change profile type → Teacher
-          - user provides faculty proof (documents[]) and optionally updates universityId
-          - app calls PUT /me/profile-mode with documents[] and optional universityId
-          - if documents provided: creates TeacherApproval for admin review
-          - admin approves → user gets teacher features
+          - user selects "I'm a Teacher" during onboarding
+          - user MUST use university email (POST /auth/request-code with university email)
+          - user provides universityId and documents[] (graduation certificate/transcript for alumni verification)
+          - app calls POST /auth/teacher-register with universityId, documents[]
+          - backend verifies university email, sets isTeacher=true, teacherVerified=true, profileMode='student'
+          - backend sets isAlumni=true (they provided university info), alumniVerified=true if university email
+        result: "isTeacher = true, teacherVerified = true, profileMode = student, isAlumni = true, universityEmailVerified = true, research features enabled"
         rules:
-          - Requires verification (faculty ID, appointment letter, university verification)
-          - Can change universityId when switching to teacher
-          - Can switch back to alumni if leaving teaching
-      teacher_to_alumni:
-        trigger: teacher leaves teaching position
+          - Teachers MUST register with university email
+          - University information (universityId) is required
+          - Teacher badge is granted immediately if university email is verified
+          - Research features are automatically enabled
+      direct_professional_registration:
+        trigger: user directly registers as professional (not from student)
         steps:
-          - user opens Settings → Change profile type → Alumni
-          - app calls PUT /me/profile-mode
-          - backend updates profileMode, keeps verificationStatus=approved
+          - user selects "I'm a Professional" during onboarding
+          - user MUST use organization email (POST /auth/request-code with office email)
+          - user provides universityId and documents[] (graduation certificate/transcript for alumni verification)
+          - app calls PUT /me/profile-mode with profileMode=professional, organizationId, universityId, documents[]
+          - backend verifies organization email, sets profileMode=professional
+          - backend creates AlumniApproval request (isAlumni=false until admin approves)
+        result: "profileMode = professional, isAlumni = false (pending), officeEmailVerified = true"
         rules:
-          - No verification needed (already verified)
-          - Cannot switch back to student
-      teacher_change_university:
-        trigger: teacher moves to different university
+          - Professionals MUST register with organization email
+          - University information (universityId) is required
+          - Documents required for alumni verification (graduation certificate/transcript)
+          - isAlumni set to true only after admin approves AlumniApproval
+      professional_change_organization:
+        trigger: professional changes jobs/company
+        steps:
+          - user opens Settings → Change Profile → Update Organization
+          - user enters new office email
+          - app calls POST /auth/request-code with new office email
+          - backend verifies new organization domain (must be whitelisted)
+          - app calls PUT /me with new organizationId
+          - backend updates organizationId, verifies new office email
+        result: "organizationId updated, officeEmailVerified = true (if new email verified)"
+        rules:
+          - Requires new office email verification
+          - Original universityId is preserved
+          - User gets officeEmailVerified badge for new organization
+      note_alumni_status: "Alumni and Teacher are BADGES/STATUSES (isAlumni, isTeacher booleans), not profile modes. Profile modes are base roles: student | professional. Users with isAlumni=true can access alumni circles and features regardless of their profileMode. Users with isTeacher=true have research features enabled regardless of their profileMode. Badges enable Spaces - each verified badge type grants access to a specialized community space (e.g., Teacher → Research Space, Engineer → Engineering Space). All professionals are alumni, so alumni features are included in professional features."
+      teacher_badge_change_university:
+        trigger: user with teacher badge moves to different university
         steps:
           - user opens Settings → Edit Profile → Update University
+          - user verifies with new university email (if available)
           - app calls PUT /me with new universityId
-          - if new university email domain: backend updates universityId immediately
-          - if personal email: may require admin verification for new university
+          - backend updates universityId, verifies new university email domain
         rules:
-          - Teachers can change universityId
-          - If using university email, domain must match new university
+          - If using university email, domain must match new university (whitelisted)
           - Research opportunities are tied to universityId
+          - User gets universityEmailVerified badge for new university
 
   university_management:
     admin_only: true
     features:
       - create/update/deactivate universities
-      - map email domain → university
+      - map email domain → university (country-wise whitelisting)
       - per-university settings:
           - enable_cross_university_matching
           - enable_circle_creation
           - enable_jobs_for_alumni
           - enable_marketplace
       - view and approve alumni requests for that university
+      - country-wise domain whitelisting (all domains must be mapped to a country)
+
+  organization_management:
+    admin_only: true
+    features:
+      - create/update/deactivate organizations (companies, NGOs, government, startups)
+      - map email domain → organization (country-wise whitelisting)
+      - organization types: corporate, ngo, government, startup
+      - country-wise domain whitelisting (all domains must be mapped to a country)
+      - view professionals by organization
+      - organization-level analytics
 
   anonymous_crush:
     goal: "Anonymous attraction inside the same university."
@@ -229,21 +292,31 @@ features:
       - allow user-level block/report
 
   circles_and_groups:
-    goal: "Programme, batch, interest, and alumni Circles."
+    goal: "Programme, batch, interest, alumni, and professional Circles. Users are automatically grouped based on their affiliations. Alumni grouping is based on isAlumni status, not profileMode."
     circle_types:
-      - programme_circle (e.g. CSE, BBA, Pharmacy)
-      - batch_circle (e.g. Spring 2025)
-      - interest_circle
-      - alumni_circle
+      - programme_circle (e.g. CSE, BBA, Pharmacy) - for students
+      - batch_circle (e.g. Spring 2025) - for students
+      - interest_circle - for all users
+      - alumni_circle - automatically created per university, users with isAlumni=true can discover and join
+      - professional_circle - automatically created per organization, professionals can discover and join
     endpoints:
       - POST /circles
       - GET /circles
+      - GET /circles/alumni (get alumni circles for user's university - requires isAlumni=true)
+      - GET /circles/professional (get professional circles for user's organization)
       - POST /circles/:id/join
       - GET /circles/:id/messages
       - POST /circles/:id/messages
+    auto_grouping:
+      - Alumni: Users with isAlumni=true and universityId are automatically grouped by university in alumni circles (regardless of profileMode)
+      - Professionals: Users with organizationId and profileMode=professional are automatically grouped by organization in professional circles
+      - Students: Automatically grouped by programme and batch
+      - Teachers: Users with isTeacher=true can join teacher circles and alumni circles (if isAlumni=true)
     notes:
-      - alumni (approved) can join alumni_circle
+      - Users with isAlumni=true can automatically discover and join alumni_circle for their university (regardless of profileMode)
+      - Professionals (profileMode=professional) can automatically discover and join professional_circle for their organization
       - public circles should allow moderation and reporting
+      - Users can be in multiple circles (e.g., alumni circle + professional circle if they have both affiliations)
 
   social_feed:
     goal: "News and community feed similar to LinkedIn/Facebook inside UniCircle."
@@ -268,20 +341,22 @@ features:
       - POST /jobs/:id/apply
     roles:
       - student: view/apply
-      - alumni (approved): view/apply/post
+      - users with isAlumni=true: view/apply/post (regardless of profileMode)
       - teacher: view/apply/post
+      - professional: view/apply/post (if enabled in settings)
     notes:
       - job module can later charge employers per posting
-      - jobs can target specific universities/programmes
-      - alumni can be professionals (no separate professional mode)
+      - jobs can target specific universities/programmes/organizations
+      - professionals can post jobs for their organization
+      - Users with isAlumni=true can access alumni features regardless of profileMode
 
   research_collaboration:
-    goal: "Enable cross-university research collaboration. Teachers publish research opportunities, students browse and apply."
+    goal: "Enable cross-university research collaboration. Users with teacher badge (isTeacher=true) publish research opportunities, students browse and apply."
     features:
-      - Teachers can publish research opportunities
+      - Users with teacher badge (isTeacher=true) can publish research opportunities
       - Students can browse research opportunities (same university and cross-university)
-      - Students can apply to research opportunities
-      - Teachers can review applications and accept/reject
+      - Students and users with isTeacher=true can apply to research opportunities
+      - Users with isTeacher=true can review applications and accept/reject
       - Cross-university research collaboration support
     schema:
       - id
@@ -292,7 +367,7 @@ features:
       - duration (e.g., "6 months", "1 year")
       - location (on-campus, remote, hybrid)
       - compensation (stipend, credit, unpaid)
-      - teacherId (User with profileMode=teacher)
+      - teacherId (User with isTeacher=true)
       - universityId
       - targetUniversities (array, for cross-university opportunities)
       - targetProgrammes (array, optional)
@@ -302,18 +377,18 @@ features:
       - createdAt
       - updatedAt
     endpoints:
-      - POST /research (teachers only)
+      - POST /research (users with isTeacher=true only)
       - GET /research?universityId=...&researchArea=...&status=open
       - GET /research/:id
-      - PUT /research/:id (teacher who created it)
-      - DELETE /research/:id (teacher who created it)
-      - POST /research/:id/apply (students only)
-      - GET /research/applications (teachers can see their opportunities' applications)
-      - POST /research/applications/:id/accept (teachers only)
-      - POST /research/applications/:id/reject (teachers only)
+      - PUT /research/:id (user with isTeacher=true who created it)
+      - DELETE /research/:id (user with isTeacher=true who created it)
+      - POST /research/:id/apply (students and users with isTeacher=true can apply)
+      - GET /research/applications (users with isTeacher=true can see their opportunities' applications)
+      - POST /research/applications/:id/accept (users with isTeacher=true only)
+      - POST /research/applications/:id/reject (users with isTeacher=true only)
     roles:
       - student: browse, apply
-      - teacher: publish, manage, review applications
+      - user with isTeacher=true: publish, manage, review applications, apply to other opportunities
       - alumni: browse (optional, can be enabled in settings)
     cross_university:
       - Teachers can publish opportunities open to students from other universities
@@ -328,26 +403,42 @@ features:
       - Application includes: cover letter, CV/resume, transcript (optional)
 
   marketplace:
-    goal: "Let students and alumni post accommodation, flat/roommate requests, and used items."
+    goal: "Comprehensive campus marketplace for accommodation, used items, distribution networks, entrepreneurship opportunities, campus roles, and services."
     listings:
-      - accommodation     # room/seat/hostel/sublet
-      - flatmate_wanted   # find people to share
-      - used_items        # books, laptop, furniture
-      - services          # optional, later
+      - accommodation        # room/seat/hostel/sublet
+      - flatmate_wanted      # find people to share
+      - electronics          # laptop, phone, gadgets
+      - books                # textbooks, novels
+      - furniture            # furniture items
+      - distribution         # distribution network opportunities (campus-level business)
+      - entrepreneurship    # startup/business opportunities, partnerships
+      - campus_opportunity  # campus roles (moderator, event organizer, student ambassador, etc.)
+      - services             # tutoring, freelancing, consulting
+      - events               # event tickets, workshops, seminars
+      - other                # other items/opportunities
     schema:
       - id
-      - type: rent | sale
-      - category: accommodation | electronics | books | furniture | other
+      - type: rent | sale | opportunity | service
+      - category: accommodation | flatmate_wanted | electronics | books | furniture | distribution | entrepreneurship | campus_opportunity | services | events | other
       - title
       - description
-      - price
+      - price (optional - for opportunities/services, can be commission/stipend/fee)
       - location
       - universityId
       - ownerId
       - images[]
       - contactInfo
+      - metadata (JSON) - Additional data: requirements, duration, compensation type, etc.
       - isActive
+      - isFeatured
       - createdAt
+    use_cases:
+      - accommodation: "Students post rooms, hostels, sublets for rent"
+      - distribution: "Campus-level distribution networks (food delivery, product distribution, etc.)"
+      - entrepreneurship: "Startup opportunities, business partnerships, co-founder searches"
+      - campus_opportunity: "Moderator roles, event organizer positions, student ambassador programs"
+      - services: "Tutoring, freelancing, consulting services"
+      - events: "Event tickets, workshop registrations, seminar access"
     endpoints:
       - POST /marketplace
       - GET /marketplace
@@ -376,6 +467,38 @@ features:
       - blocked users lose posting/messaging/listing abilities
       - high-risk content should generate email to moderators
 
+  referral_system:
+    goal: "Encourage user growth through referral rewards. Users can refer others from the same university domain or professional organization domain and earn points."
+    features:
+      - unique_referral_code: "Each user gets a unique referral code (format: first 3 letters of email + 6 random alphanumeric)"
+      - referral_tracking: "Track who referred whom (referredBy field)"
+      - point_system: "Earn points for successful referrals"
+      - domain_match_bonus: "Extra points if referred user is from same domain (university or organization)"
+    point_structure:
+      - signup_points: "Points awarded when referred user signs up (default: 10 points)"
+      - verification_points: "Points awarded when referred user verifies account (default: 20 points)"
+      - domain_match_bonus: "Bonus points if referred user is from same domain (default: 5 points)"
+    endpoints:
+      - GET /referrals/me/code - Get my referral code
+      - GET /referrals/me/stats - Get referral statistics (total referrals, verified referrals, total points)
+    registration_flow:
+      - user_can_provide_referral_code: "During OTP verification, user can optionally provide a referral code"
+      - automatic_point_award: "Points are automatically awarded when referred user signs up and verifies"
+      - domain_check: "System checks if referrer and referred user share same university or organization domain"
+    admin_settings:
+      - enableReferralSystem: "Enable/disable referral system (default: true)"
+      - referralPointsPerSignup: "Points per signup (default: 10)"
+      - referralPointsPerVerification: "Points per verification (default: 20)"
+      - referralPointsPerDomainMatch: "Bonus points for domain match (default: 5)"
+    use_cases:
+      - same_university: "Student refers another student from same university → gets signup + verification + domain match points"
+      - same_organization: "Professional refers another professional from same company → gets signup + verification + domain match points"
+      - cross_domain: "User refers someone from different domain → gets signup + verification points (no domain bonus)"
+    notes:
+      - "Self-referrals are prevented (user cannot use their own referral code)"
+      - "Referral code is optional during registration"
+      - "Points can be used for premium features, marketplace boosts, or other rewards (future implementation)"
+
   notifications:
     channels:
       - email (default)
@@ -393,6 +516,8 @@ features:
       - research_application_submitted
       - research_application_accepted
       - research_application_rejected
+      - referral_signup: "When someone signs up using your referral code"
+      - referral_verified: "When someone you referred verifies their account"
     scheduler:
       - cron "0 12 * * FRI" Asia/Dhaka
 
@@ -412,15 +537,15 @@ features:
       - CampusAdmin
       - Moderator
     dashboard:
-      - user counts (by profileMode: student, alumni, teacher, by verificationStatus)
-      - active universities
+      - user counts (by profileMode: student, teacher, professional, by isAlumni status, by verificationStatus)
+      - active universities and organizations
       - crushes & matches
       - circles and feed engagement
       - jobs posted and applications
       - research opportunities published and applications
       - marketplace listings (active, reported, featured)
-      - pending alumni approvals
-      - pending teacher approvals
+      - pending alumni approvals (for isAlumni verification)
+      - domain whitelisting status (universities and organizations by country)
     config:
       - enable_cross_university_matching
       - enable_cross_university_research
@@ -428,9 +553,46 @@ features:
       - enable_career_features
       - enable_research_features
       - enable_marketplace
-      - profile_wise_features (student, alumni, teacher)
+      - profile_wise_features (student, professional - base features like marketplace, career, circles, feed)
+      - badge_spaces (each verified badge type gets its own dedicated space/community)
+      - account_type_availability (enableStudentRegistration, enableTeacherRegistration, enableProfessionalRegistration)
+      - Note: Teacher is a badge (isTeacher), not a profile mode. enableTeacherRegistration controls teacher badge registration availability.
+      - country-wise domain whitelisting (universities and organizations)
       - rate limits
       - notification templates
+    badge_spaces:
+      concept: "Badges enable Spaces - specialized communities where badge holders can connect, share stories, post discussions, and collaborate. Each badge type gets its own dedicated space."
+      examples:
+        - teacher badge → "Research Space" (teachers and students with researcher badge can connect)
+        - engineer badge → "Engineering Space" (engineers share stories, projects, insights)
+        - doctor badge → "Doctor Space" (medical discussions, case studies, networking)
+        - lawyer badge → "Legal Space"
+        - researcher badge → "Research Space" (students with researcher badge can join)
+        - intern badge → "Intern Space"
+        - graduate_teacher badge → "Graduate Teaching Space"
+      configuration:
+        - Each badge space can be enabled/disabled in admin settings
+        - Space name is customizable (e.g., "Research Space", "Engineering Space")
+        - Space description is customizable
+        - Access type: "student" | "professional" | "both" - determines which profile types can access
+        - Spaces are returned in user features as `spaces` array when user has verified badges
+      access_rules:
+        - Users with verified badge get access to that badge's space (if their profile mode matches accessType)
+        - Access type determines visibility:
+          - "student": Only users with student profile can access
+          - "professional": Only users with professional profile can access
+          - "both": Both student and professional profiles can access
+        - Examples:
+          - Intern Space: accessType="student" (only students with intern badge)
+          - Engineering Space: accessType="professional" (only professionals with engineer badge)
+          - Research Space: accessType="both" (teachers and students with researcher badge)
+        - Multiple badges = access to multiple spaces (filtered by profile mode)
+        - Spaces are separate from profile-based features (marketplace, career, circles, feed)
+      notes:
+        - Badge spaces are ADDITIVE - they don't replace profile features
+        - Profile features (student/professional) are base features available to all users of that profile
+        - Badge spaces are specialized communities for verified badge holders
+        - All professionals are alumni, so alumni features are part of professional features
 
   revenue_model:
     goal: "Make UniCircle financially sustainable without harming student UX."
@@ -452,12 +614,260 @@ features:
       - all paid actions must be audited
       - mobile should show non-intrusive “Promoted” label
 
+# =========================
+# APPEND BELOW THIS LINE
+# =========================
+
+core_domains:
+  - vendor_portal
+  - orders_and_checkout
+  - payments_and_payouts
+  - campus_partner_portal
+  - billing_and_pricing
+  - growth_incentives
+  - ops_and_sla
+  - metrics_and_roi
+
+features:
+
+  vendor_portal:
+    goal: "Let verified local vendors advertise to specific campuses and sell services or promotions."
+    actors:
+      - vendor_owner
+      - vendor_staff
+      - campus_admin
+      - super_admin
+    onboarding:
+      flows:
+        - self_service_signup:
+            steps:
+              - POST /vendors/apply  # business info, NID or trade license, phone, email
+              - POST /vendors/upload-documents
+              - POST /vendors/verify-otp
+              - Admin review within 24h
+        - campus_invite:
+            steps:
+              - CampusAdmin invites vendor via POST /campus/:id/vendors/invite
+              - Vendor completes KYC and OTP
+    kyc_requirements:
+      - business_name
+      - proprietor_name
+      - trade_license_number_or_NID
+      - phone_verified
+      - email_verified
+      - bank_or_mfs_account_for_payout
+    capabilities:
+      - manage_profile: PUT /vendors/:id
+      - manage_locations: POST/PUT /vendors/:id/locations
+      - manage_catalog: POST/PUT /vendors/:id/items  # products, services, promos
+      - run_campaigns: POST /vendors/:id/campaigns   # featured, boosted
+      - respond_inbox: GET/POST /vendors/:id/inbox   # student messages
+      - analytics: GET /vendors/:id/analytics
+    campus_targeting:
+      - POST /vendors/:id/targeting  # one or more universityId, geo radius optional
+      - rules:
+        - vendors can only target enabled campuses
+        - CampusAdmin can disable vendors per campus
+
+  marketplace_extensions:
+    goal: "Extend marketplace for vendor catalogs and campus promos."
+    add_to_existing_marketplace:
+      new_categories:
+        - local_business   # food, print shop, gym, transport, events
+        - promos           # time-bound offers, coupons
+        - services_pro     # professional services from vendors
+      listing_fields_extension:
+        - vendorId
+        - stockQty
+        - schedule         # opening hours
+        - fulfillmentType  # pickup | delivery | service_booking | coupon
+        - campusCoverage[] # list of universityId
+      discovery_rules:
+        - show campus-relevant vendors by default
+        - optional filter: radius, rating, open_now
+    endpoints:
+      - GET /marketplace/vendors?universityId=...
+      - GET /marketplace/items?vendorId=...
+      - POST /marketplace/:id/feature  # already defined in revenue_model
+
+  orders_and_checkout:
+    goal: "Support lightweight checkout for vendor items and campus services."
+    scope: "MVP supports intent-based orders with vendor confirmation. Full payment capture optional per campus policy."
+    schema:
+      Order:
+        - id
+        - buyerId
+        - vendorId
+        - items[]:
+            - itemId
+            - title
+            - qty
+            - unitPrice
+        - subtotal
+        - fees           # platform fee if applicable
+        - total
+        - paymentMethod  # cod | mfs | card | prepaid_token
+        - status         # created | confirmed | fulfilled | cancelled | refunded
+        - universityId
+        - createdAt
+        - updatedAt
+    endpoints:
+      - POST /orders
+      - GET /orders/:id
+      - POST /orders/:id/confirm        # vendor action
+      - POST /orders/:id/fulfill        # vendor action
+      - POST /orders/:id/cancel         # vendor or buyer within policy
+      - POST /orders/:id/refund         # admin or vendor if prepaid
+    policies:
+      - cancellation_window_minutes: 10
+      - refund_policy_text: "Vendor-set, CampusAdmin override allowed"
+      - service_booking_support: true
+
+  payments_and_payouts:
+    goal: "Collect platform fees and settle vendor earnings securely."
+    payment_modes:
+      - mfs  # bKash, Nagad, Rocket - via PSP gateway abstraction
+      - card
+      - cash_on_delivery  # no online capture, fees invoiced
+    fee_model:
+      - platform_fee_percent: configurable per category
+      - fixed_fee_per_order: configurable
+      - free_tier: campus pilots can waive fees
+    payout_flow:
+      steps:
+        - compute_settlement_daily: cron "0 3 * * *" Asia/Dhaka
+        - POST /payouts/run
+        - POST /payouts/:id/disburse  # to bank or MFS
+      schema:
+        Payout:
+          - id
+          - vendorId
+          - periodStart
+          - periodEnd
+          - grossSales
+          - platformFees
+          - adjustments
+          - netPayable
+          - status  # pending | processing | paid | failed
+    compliance:
+      - store VAT/TAX fields per sale if applicable
+      - downloadable statement: GET /vendors/:id/statements?month=YYYY-MM
+
+  campus_partner_portal:
+    goal: "Campus-level control of vendors, promos, jobs, and events."
+    features:
+      - vendor_approvals: GET/POST /campus/:id/vendors
+      - promo_calendar: GET/POST /campus/:id/promos
+      - spotlight_slots: configure featured positions in Feed
+      - analytics: GET /campus/:id/analytics
+    roles:
+      - CampusAdmin
+      - Moderator
+    guardrails:
+      - campus_branding_controls: logos, color, code-of-conduct
+      - safe_listing_policies: prohibited items list
+
+  billing_and_pricing:
+    goal: "Transparent pricing for boosts, ads, job postings, and premium badges."
+    plans:
+      - marketplace_feature:
+          - price_usd: 5
+          - duration_days: 7
+          - endpoint: POST /marketplace/:id/feature
+      - vendor_boost:
+          - price_usd: 20
+          - impressions_guarantee: 5k
+          - endpoint: POST /vendors/:id/campaigns
+      - job_posting_basic:
+          - price_usd: 15
+          - duration_days: 30
+          - endpoint: POST /jobs/:id/boost
+      - premium_badge_verification:
+          - price_usd: 2
+          - notes: "optional, campus can waive"
+    invoicing:
+      - POST /billing/checkout  # creates invoice + payment intent
+      - GET /billing/invoices/me
+      - GET /billing/invoices/:id/pdf
+    refunds:
+      - policy: "within 24 hours if no impressions or listing not published"
+
+  growth_incentives:
+    goal: "Acquire and retain users and vendors with measurable incentives."
+    student_side:
+      - referral_points_to_cashback: true
+      - campus_ambassador_program:
+          - stipend_or_performance: configurable
+          - endpoints:
+            - POST /ambassadors/apply
+            - GET /ambassadors/me
+    vendor_side:
+      - vendor_referral: "waive first feature fee on successful referred vendor"
+      - first_order_fee_holiday: "0 percent platform fee for first N orders"
+    experiments:
+      - flags:
+        - enablePayWithPointsForFeature
+        - enableCampusAmbassadorPromoCode
+
+  ops_and_sla:
+    goal: "Operational playbooks so the marketplace remains safe and timely."
+    slas:
+      - vendor_verification_sla_hours: 24
+      - order_confirm_sla_minutes: 15
+      - dispute_response_sla_hours: 48
+    policies:
+      - prohibited_items_list_url: "/policies/prohibited-items"
+      - age_restricted_items: blocked
+      - escalation_matrix:
+          - L1: Moderator
+          - L2: CampusAdmin
+          - L3: SuperAdmin
+    audit:
+      - every monetized action captured in AuditLog
+      - GET /admin/audit?actorType=vendor|user
+
+  metrics_and_roi:
+    goal: "Quarterly ROI reporting that maps directly to the pitch deck."
+    metrics:
+      acquisition:
+        - DAU
+        - WAU
+        - MAU
+        - K-factor  # referrals
+      engagement:
+        - posts_per_user
+        - matches_per_user
+        - circle_joins
+      marketplace:
+        - GMV           # gross merchandise value
+        - take_rate     # platform_fee_percent realized
+        - paid_features # count and revenue
+        - active_vendors
+      jobs:
+        - postings_paid
+        - applications
+      research:
+        - opportunities_published
+        - applications_submitted
+    dashboards:
+      - GET /admin/metrics/roi?window=quarter
+      - exports:
+        - GET /admin/metrics/roi/csv
+        - GET /admin/metrics/roi/pdf
+    attribution:
+      - track source for vendor and student signups
+      - attribute revenue to campus, category, channel
+
+
+
 non_functional:
   security:
     - HTTPS required
     - JWT auth for all non-public endpoints
     - validate file uploads for alumni and marketplace images
     - rate limiting on POST-heavy endpoints (auth, crush, marketplace)
+    - country-wise domain whitelisting (all university and organization email domains must be verified and whitelisted)
+    - email verification badges (universityEmailVerified, officeEmailVerified) for authentic profiles
   performance:
     - indexes on email, universityId, programme, createdAt
     - pagination for posts, jobs, marketplace

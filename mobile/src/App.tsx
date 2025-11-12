@@ -8,7 +8,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useFonts } from 'expo-font';
 
 export default function App() {
-  const { checkAuth, isAuthenticated, isLoading, user, needsPinSetup, countryInactiveError } = useAuthStore();
+  const { checkAuth, isAuthenticated, isLoading, user, needsPinSetup, hasDeviceBinding, countryInactiveError } = useAuthStore();
   const [fontsLoaded] = useFonts({
     ...Ionicons.font,
   });
@@ -66,7 +66,16 @@ export default function App() {
     // User is authenticated and PIN is set - show main navigator
     navigator = <MainNavigator />;
   } else if (isAuthenticated && needsPinSetup) {
-    // User is authenticated but needs PIN setup - keep in AuthNavigator
+    // User is authenticated but needs PIN setup - show email/OTP flow (not PIN login)
+    // They need to complete registration or set up PIN first
+    navigator = <AuthNavigator />;
+  } else if (!isAuthenticated && hasDeviceBinding && !needsPinSetup) {
+    // User has device binding and password set, but token expired - show PIN login screen
+    // Only show PIN login if user actually has a password (hasDeviceBinding implies this)
+    // AND they don't need PIN setup (double check to prevent showing PIN login to users without password)
+    navigator = <AuthNavigator initialRouteName="PinLogin" />;
+  } else {
+    // User not authenticated and no device binding, OR needs PIN setup - show normal auth flow (Email screen)
     navigator = <AuthNavigator />;
   }
 

@@ -7,16 +7,14 @@ import apiClient from '../../api/client';
 
 interface AvailableAccountTypes {
   student: boolean;
-  alumni: boolean;
-  teacher: boolean;
+  professional: boolean;
 }
 
 export default function ChooseTypeScreen() {
   const navigation = useNavigation();
   const [availableTypes, setAvailableTypes] = useState<AvailableAccountTypes>({
     student: true,
-    alumni: true,
-    teacher: true,
+    professional: true,
   });
   const [loading, setLoading] = useState(true);
 
@@ -48,13 +46,11 @@ export default function ChooseTypeScreen() {
         // Use !== undefined to preserve false values
         setAvailableTypes({
           student: data.student !== undefined ? data.student : true,
-          alumni: data.alumni !== undefined ? data.alumni : true,
-          teacher: data.teacher !== undefined ? data.teacher : true,
+          professional: data.professional !== undefined ? data.professional : true,
         });
         console.log('[CHOOSE TYPE] Available types set:', {
           student: data.student !== undefined ? data.student : true,
-          alumni: data.alumni !== undefined ? data.alumni : true,
-          teacher: data.teacher !== undefined ? data.teacher : true,
+          professional: data.professional !== undefined ? data.professional : true,
         });
       }
     } catch (error) {
@@ -70,34 +66,25 @@ export default function ChooseTypeScreen() {
       // Save account type preference
       await SecureStore.setItemAsync('lastAccountType', 'student');
       console.log('[ChooseType] Saved account type: student');
-      navigation.navigate('Email' as never);
+      (navigation as any).navigate('Email', { accountType: 'student' });
     } catch (error) {
       console.error('[ChooseType] Error saving preference:', error);
-      navigation.navigate('Email' as never);
+      (navigation as any).navigate('Email', { accountType: 'student' });
     }
   };
 
-  const handleAlumniPress = async () => {
-    try {
-      // Save account type preference
-      await SecureStore.setItemAsync('lastAccountType', 'alumni');
-      console.log('[ChooseType] Saved account type: alumni');
-      navigation.navigate('AlumniRegister' as never);
-    } catch (error) {
-      console.error('[ChooseType] Error saving preference:', error);
-      navigation.navigate('AlumniRegister' as never);
-    }
-  };
 
-  const handleTeacherPress = async () => {
+
+  const handleProfessionalPress = async () => {
     try {
       // Save account type preference
-      await SecureStore.setItemAsync('lastAccountType', 'teacher');
-      console.log('[ChooseType] Saved account type: teacher');
-      navigation.navigate('TeacherRegister' as never);
+      await SecureStore.setItemAsync('lastAccountType', 'professional');
+      console.log('[ChooseType] Saved account type: professional');
+      // Professionals register with their office email or university email
+      (navigation as any).navigate('Email', { accountType: 'professional' });
     } catch (error) {
       console.error('[ChooseType] Error saving preference:', error);
-      navigation.navigate('TeacherRegister' as never);
+      (navigation as any).navigate('Email', { accountType: 'professional' });
     }
   };
 
@@ -111,7 +98,7 @@ export default function ChooseTypeScreen() {
   }
 
   // Check if any account type is available
-  const hasAvailableTypes = availableTypes.student || availableTypes.alumni || availableTypes.teacher;
+  const hasAvailableTypes = availableTypes.student || availableTypes.professional;
 
   if (!hasAvailableTypes) {
     return (
@@ -159,38 +146,20 @@ export default function ChooseTypeScreen() {
           </TouchableOpacity>
         )}
 
-        {availableTypes.alumni && (
-          <TouchableOpacity
-            style={styles.optionCard}
-            onPress={handleAlumniPress}
-            activeOpacity={0.8}
-          >
-            <View style={[styles.iconContainer, styles.alumniIconContainer]}>
-              <Ionicons name="person-outline" size={32} color="#27AE60" />
-            </View>
-            <View style={styles.optionContent}>
-              <Text style={styles.optionTitle}>I'm an Alumni</Text>
-              <Text style={styles.optionDescription}>
-                Register with verification documents. Approval typically takes 24 hours.
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={24} color="#999" />
-          </TouchableOpacity>
-        )}
 
-        {availableTypes.teacher && (
+        {availableTypes.professional && (
           <TouchableOpacity
             style={styles.optionCard}
-            onPress={handleTeacherPress}
+            onPress={handleProfessionalPress}
             activeOpacity={0.8}
           >
-            <View style={[styles.iconContainer, styles.teacherIconContainer]}>
-              <Ionicons name="book-outline" size={32} color="#E67E22" />
+            <View style={[styles.iconContainer, styles.professionalIconContainer]}>
+              <Ionicons name="briefcase-outline" size={32} color="#8B5CF6" />
             </View>
             <View style={styles.optionContent}>
-              <Text style={styles.optionTitle}>I'm a Teacher</Text>
+              <Text style={styles.optionTitle}>I'm a Professional</Text>
               <Text style={styles.optionDescription}>
-                Register as faculty member. Use university email for faster approval, or upload faculty documents.
+                Sign in with your organization email. Connect with professionals and alumni from your organization or university.
               </Text>
             </View>
             <Ionicons name="chevron-forward" size={24} color="#999" />
@@ -276,6 +245,9 @@ const styles = StyleSheet.create({
   },
   teacherIconContainer: {
     backgroundColor: '#FFE5D4',
+  },
+  professionalIconContainer: {
+    backgroundColor: '#E8D5F2',
   },
   optionContent: {
     flex: 1,

@@ -21,6 +21,7 @@ import {
   Modal,
   Descriptions,
   Tabs,
+  Radio,
 } from 'antd';
 import {
   BankOutlined,
@@ -31,6 +32,7 @@ import {
   ClockCircleOutlined,
   MailOutlined,
   GlobalOutlined,
+  BuildOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import toast from 'react-hot-toast';
@@ -38,24 +40,29 @@ import { format } from 'date-fns';
 
 const { Title, Text } = Typography;
 
-interface UniversityRequest {
+interface InstitutionRequest {
   id: string;
-  universityName: string;
+  institutionName: string;
+  institutionType?: 'university' | 'organization' | null;
+  universityName?: string; // Backward compatibility
   country: string;
+  countryId?: string;
   studentEmail: string;
   domain: string;
   status: string;
   createdAt: string;
 }
 
-export default function UniversityRequestsPage() {
-  const [requests, setRequests] = useState<UniversityRequest[]>([]);
-  const [allRequests, setAllRequests] = useState<UniversityRequest[]>([]); // Store all requests for stats
+export default function InstitutionRequestsPage() {
+  const [requests, setRequests] = useState<InstitutionRequest[]>([]);
+  const [allRequests, setAllRequests] = useState<InstitutionRequest[]>([]); // Store all requests for stats
   const [loading, setLoading] = useState(true);
-  const [selectedRequest, setSelectedRequest] = useState<UniversityRequest | null>(null);
+  const [selectedRequest, setSelectedRequest] = useState<InstitutionRequest | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showApproveModal, setShowApproveModal] = useState(false);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [institutionType, setInstitutionType] = useState<'university' | 'organization'>('university');
 
   useEffect(() => {
     loadAllRequests(); // Load all requests for stats
@@ -68,7 +75,7 @@ export default function UniversityRequestsPage() {
 
   const loadAllRequests = async () => {
     try {
-      const response = await api.get('/admin/university-requests');
+      const response = await api.get('/admin/institution-requests');
       const data = response.data?.data || response.data;
       setAllRequests(Array.isArray(data) ? data : []);
     } catch (error) {
@@ -80,7 +87,7 @@ export default function UniversityRequestsPage() {
     setLoading(true);
     try {
       const params = statusFilter !== 'all' ? `?status=${statusFilter}` : '';
-      const response = await api.get(`/admin/university-requests${params}`);
+      const response = await api.get(`/admin/institution-requests${params}`);
       const data = response.data?.data || response.data;
       setRequests(Array.isArray(data) ? data : []);
       // Update all requests if loading all
@@ -88,21 +95,26 @@ export default function UniversityRequestsPage() {
         setAllRequests(Array.isArray(data) ? data : []);
       }
     } catch (error) {
-      console.error('Failed to load university requests:', error);
-      toast.error('Failed to load university requests');
+      console.error('Failed to load institution requests:', error);
+      toast.error('Failed to load institution requests');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleApprove = async (id: string) => {
-    setProcessingId(id);
+  const handleApprove = async () => {
+    if (!selectedRequest) return;
+    setProcessingId(selectedRequest.id);
     try {
-      await api.post(`/admin/university-requests/${id}/approve`);
-      toast.success('University request approved and university created. The requester has been notified via email.');
+      await api.post(`/admin/institution-requests/${selectedRequest.id}/approve`, {
+        institutionType: institutionType,
+      });
+      toast.success(`${institutionType === 'university' ? 'University' : 'Organization'} request approved and created. The requester has been notified via email.`);
       loadAllRequests(); // Reload all for stats
       loadRequests(); // Reload filtered list
       setShowDetailModal(false);
+      setShowApproveModal(false);
+      setSelectedRequest(null);
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Failed to approve request');
     } finally {
@@ -110,11 +122,17 @@ export default function UniversityRequestsPage() {
     }
   };
 
+  const handleApproveClick = (request: InstitutionRequest) => {
+    setSelectedRequest(request);
+    setInstitutionType('university'); // Default to university
+    setShowApproveModal(true);
+  };
+
   const handleReject = async (id: string) => {
     setProcessingId(id);
     try {
-      await api.post(`/admin/university-requests/${id}/reject`);
-      toast.success('University request rejected');
+      await api.post(`/admin/institution-requests/${id}/reject`);
+      toast.success('Institution request rejected');
       loadAllRequests(); // Reload all for stats
       loadRequests(); // Reload filtered list
       setShowDetailModal(false);
@@ -125,21 +143,21 @@ export default function UniversityRequestsPage() {
     }
   };
 
-  const handleViewDetails = (request: UniversityRequest) => {
+  const handleViewDetails = (request: InstitutionRequest) => {
     setSelectedRequest(request);
     setShowDetailModal(true);
   };
 
-  const columns: ColumnsType<UniversityRequest> = [
+  const columns: ColumnsType<InstitutionRequest> = [
     {
-      title: 'University Name',
-      key: 'universityName',
+      title: 'Institution Name',
+      key: 'institutionName',
       width: 250,
       render: (_, record) => (
         <Space>
           <BankOutlined style={{ color: '#2358d6', fontSize: '20px' }} />
           <div>
-            <div className="font-medium text-gray-900">{record.universityName}</div>
+            <div className="font-medium text-gray-900">{record.institutionName || record.universityName}</div>
             <Text type="secondary" className="text-xs flex items-center">
               <GlobalOutlined className="mr-1" />
               {record.domain}
@@ -210,27 +228,19 @@ export default function UniversityRequestsPage() {
           </Tooltip>
           {record.status === 'pending' && (
             <>
+              <Tooltip title="Approve and create institution">
+                <Button
+                  type="primary"
+                  icon={<CheckCircleOutlined />}
+                  size="small"
+                  loading={processingId === record.id}
+                  onClick={() => handleApproveClick(record)}
+                >
+                  Approve
+                </Button>
+              </Tooltip>
               <Popconfirm
-                title="Approve this university request?"
-                description="This will create the university and allow students from this domain to register."
-                onConfirm={() => handleApprove(record.id)}
-                okText="Approve"
-                cancelText="Cancel"
-                okButtonProps={{ danger: false }}
-              >
-                <Tooltip title="Approve and create university">
-                  <Button
-                    type="primary"
-                    icon={<CheckCircleOutlined />}
-                    size="small"
-                    loading={processingId === record.id}
-                  >
-                    Approve
-                  </Button>
-                </Tooltip>
-              </Popconfirm>
-              <Popconfirm
-                title="Reject this university request?"
+                title="Reject this institution request?"
                 description="This will mark the request as rejected."
                 onConfirm={() => handleReject(record.id)}
                 okText="Reject"
@@ -292,8 +302,8 @@ export default function UniversityRequestsPage() {
         {/* Page Header */}
         <div className="flex items-center justify-between">
           <div>
-            <Title level={2} className="!mb-2 !text-gray-900">University Requests</Title>
-            <Text type="secondary">Review and approve requests to add new universities</Text>
+            <Title level={2} className="!mb-2 !text-gray-900">Institution Requests</Title>
+            <Text type="secondary">Review and approve requests to add new universities or organizations</Text>
           </div>
           <Space>
             <Tooltip title="Refresh requests">
@@ -383,10 +393,10 @@ export default function UniversityRequestsPage() {
             }}
             scroll={{ x: 1000 }}
             locale={{
-              emptyText: (
+                  emptyText: (
                 <Empty
                   image={<BankOutlined style={{ fontSize: 48, color: '#d9d9d9' }} />}
-                  description={`No ${statusFilter === 'all' ? '' : statusFilter} university requests found`}
+                  description={`No ${statusFilter === 'all' ? '' : statusFilter} institution requests found`}
                 />
               ),
             }}
@@ -398,7 +408,7 @@ export default function UniversityRequestsPage() {
           title={
             <div className="flex items-center space-x-2">
               <BankOutlined className="text-blue-500" />
-              <span>University Request Details</span>
+              <span>Institution Request Details</span>
             </div>
           }
           open={showDetailModal}
@@ -412,16 +422,23 @@ export default function UniversityRequestsPage() {
           {selectedRequest && (
             <div className="space-y-4">
               <Descriptions column={1} bordered>
-                <Descriptions.Item label="University Name">
-                  <Text strong>{selectedRequest.universityName}</Text>
+                <Descriptions.Item label="Institution Name">
+                  <Text strong>{selectedRequest.institutionName || selectedRequest.universityName}</Text>
                 </Descriptions.Item>
+                {selectedRequest.institutionType && (
+                  <Descriptions.Item label="Type">
+                    <Tag color={selectedRequest.institutionType === 'university' ? 'blue' : 'purple'}>
+                      {selectedRequest.institutionType === 'university' ? 'University' : 'Organization'}
+                    </Tag>
+                  </Descriptions.Item>
+                )}
                 <Descriptions.Item label="Country">
                   <Tag color="blue">{selectedRequest.country}</Tag>
                 </Descriptions.Item>
                 <Descriptions.Item label="Email Domain">
                   <Text code>{selectedRequest.domain}</Text>
                 </Descriptions.Item>
-                <Descriptions.Item label="Student Email">
+                <Descriptions.Item label="Requester Email">
                   <Text>{selectedRequest.studentEmail}</Text>
                 </Descriptions.Item>
                 <Descriptions.Item label="Status">
@@ -453,17 +470,84 @@ export default function UniversityRequestsPage() {
                       Reject
                     </Button>
                   </Popconfirm>
-                  <Popconfirm
-                    title="Approve and create university?"
-                    description="This will create the university and allow students to register."
-                    onConfirm={() => handleApprove(selectedRequest.id)}
+                  <Button
+                    type="primary"
+                    icon={<CheckCircleOutlined />}
+                    onClick={() => handleApproveClick(selectedRequest)}
                   >
-                    <Button type="primary" icon={<CheckCircleOutlined />}>
-                      Approve & Create
-                    </Button>
-                  </Popconfirm>
+                    Approve & Create
+                  </Button>
                 </div>
               )}
+            </div>
+          )}
+        </Modal>
+
+        {/* Approve Modal - Select Institution Type */}
+        <Modal
+          title="Approve Institution Request"
+          open={showApproveModal}
+          onCancel={() => {
+            setShowApproveModal(false);
+            setSelectedRequest(null);
+            setInstitutionType('university');
+          }}
+          onOk={handleApprove}
+          confirmLoading={processingId === selectedRequest?.id}
+          okText="Approve & Create"
+          cancelText="Cancel"
+          width={500}
+        >
+          {selectedRequest && (
+            <div className="space-y-4">
+              <div>
+                <Text strong>Institution: </Text>
+                <Text>{selectedRequest.institutionName || selectedRequest.universityName}</Text>
+              </div>
+              <div>
+                <Text strong>Domain: </Text>
+                <Text code>{selectedRequest.domain}</Text>
+              </div>
+              <div className="pt-4">
+                <Text strong className="block mb-2">
+                  Select Institution Type:
+                </Text>
+                <Radio.Group
+                  value={institutionType}
+                  onChange={(e) => setInstitutionType(e.target.value)}
+                  className="w-full"
+                >
+                  <Space direction="vertical" className="w-full">
+                    <Radio value="university">
+                      <Space>
+                        <BankOutlined style={{ color: '#2358d6' }} />
+                        <div>
+                          <div className="font-medium">University</div>
+                          <Text type="secondary" className="text-xs">
+                            For students and academic institutions
+                          </Text>
+                        </div>
+                      </Space>
+                    </Radio>
+                    <Radio value="organization">
+                      <Space>
+                        <BuildOutlined style={{ color: '#722ed1' }} />
+                        <div>
+                          <div className="font-medium">Organization</div>
+                          <Text type="secondary" className="text-xs">
+                            For professionals and companies
+                          </Text>
+                        </div>
+                      </Space>
+                    </Radio>
+                  </Space>
+                </Radio.Group>
+              </div>
+              <div className="mt-4 p-3 bg-blue-50 rounded border border-blue-200">
+                <Text type="secondary" className="text-sm">
+                  <strong>Note:</strong> This will create a new {institutionType === 'university' ? 'university' : 'organization'} and allow users with this email domain to register.
+                </Text>
+              </div>
             </div>
           )}
         </Modal>

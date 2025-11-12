@@ -12,10 +12,22 @@ interface Country {
 export default function RequestUniversityScreen() {
   const navigation = useNavigation();
   const route = useRoute();
-  const { email, domain } = route.params as { email: string; domain: string };
+  const { email, domain, accountType, institutionType } = route.params as { 
+    email: string; 
+    domain: string;
+    accountType?: 'student' | 'professional';
+    institutionType?: 'university' | 'organization' | 'both';
+  };
+
+  const isProfessional = accountType === 'professional';
+  const isBoth = institutionType === 'both';
+  const institutionLabel = isProfessional ? 'Institution' : 'University';
+  const institutionPlaceholder = isProfessional 
+    ? (isBoth ? 'e.g., North South University or BAT Bangladesh' : 'e.g., BAT Bangladesh')
+    : 'e.g., North South University';
 
   const [formData, setFormData] = useState({
-    universityName: '',
+    institutionName: '',
     countryId: '',
     studentEmail: email || '',
   });
@@ -57,7 +69,7 @@ export default function RequestUniversityScreen() {
   };
 
   const handleSubmit = async () => {
-    if (!formData.universityName || !formData.countryId || !formData.studentEmail) {
+    if (!formData.institutionName || !formData.countryId || !formData.studentEmail) {
       Alert.alert('Error', 'Please fill all fields');
       return;
     }
@@ -69,10 +81,14 @@ export default function RequestUniversityScreen() {
 
     setLoading(true);
     try {
-      await apiClient.post('/auth/request-university', formData);
+      await apiClient.post('/auth/request-institution', formData);
+      const successMessage = isProfessional
+        ? 'Your institution request has been submitted successfully. Our admin team will review it and add your institution soon. You will be notified via email once it\'s approved.'
+        : 'Your university request has been submitted successfully. Our admin team will review it and add your university soon. You will be notified via email once it\'s approved.';
+      
       Alert.alert(
         'Request Submitted',
-        'Your university request has been submitted successfully. Our admin team will review it and add your university soon. You will be notified via email once it\'s approved.',
+        successMessage,
         [
           {
             text: 'OK',
@@ -85,9 +101,13 @@ export default function RequestUniversityScreen() {
       
       // Handle specific error cases with user-friendly messages
       if (errorMessage.includes('already pending') || errorMessage.includes('already exists')) {
+        const pendingMessage = isProfessional
+          ? 'A request for this institution has already been submitted and is currently under review. You will be notified via email once it\'s approved. Please check your email for updates.'
+          : 'A request for this university has already been submitted and is currently under review. You will be notified via email once it\'s approved. Please check your email for updates.';
+        
         Alert.alert(
           'Request Already Submitted',
-          'A request for this university has already been submitted and is currently under review. You will be notified via email once it\'s approved. Please check your email for updates.',
+          pendingMessage,
           [
             {
               text: 'OK',
@@ -96,9 +116,13 @@ export default function RequestUniversityScreen() {
           ]
         );
       } else if (errorMessage.includes('already exists in our system')) {
+        const existsMessage = isProfessional
+          ? 'This institution is already in our system. Please try logging in with your organization or university email.'
+          : 'This university is already in our system. Please try logging in with your university email.';
+        
         Alert.alert(
-          'University Already Exists',
-          'This university is already in our system. Please try logging in with your university email.',
+          isProfessional ? 'Institution Already Exists' : 'University Already Exists',
+          existsMessage,
           [
             {
               text: 'OK',
@@ -116,17 +140,19 @@ export default function RequestUniversityScreen() {
 
   return (
     <ScrollView style={styles.container}>
-      <Text style={styles.title}>Request University</Text>
+      <Text style={styles.title}>Request {institutionLabel}</Text>
       <Text style={styles.subtitle}>
-        Your university is not in our system. Please provide the following information to request it to be added.
+        {isProfessional
+          ? 'Your organization or university is not in our system. Please provide the following information to request it to be added.'
+          : 'Your university is not in our system. Please provide the following information to request it to be added.'}
       </Text>
 
-      <Text style={styles.label}>University Name *</Text>
+      <Text style={styles.label}>{institutionLabel} Name *</Text>
       <TextInput
         style={styles.input}
-        placeholder="e.g., North South University"
-        value={formData.universityName}
-        onChangeText={(text) => setFormData({ ...formData, universityName: text })}
+        placeholder={institutionPlaceholder}
+        value={formData.institutionName}
+        onChangeText={(text) => setFormData({ ...formData, institutionName: text })}
       />
 
       <Text style={styles.label}>Country *</Text>
@@ -194,10 +220,10 @@ export default function RequestUniversityScreen() {
         </View>
       </Modal>
 
-      <Text style={styles.label}>Your Student Email *</Text>
+      <Text style={styles.label}>Your Email *</Text>
       <TextInput
         style={styles.input}
-        placeholder="student@university.edu"
+        placeholder={isProfessional ? "your.email@organization.com or your.email@university.edu" : "student@university.edu"}
         value={formData.studentEmail}
         onChangeText={(text) => setFormData({ ...formData, studentEmail: text })}
         keyboardType="email-address"
@@ -217,7 +243,7 @@ export default function RequestUniversityScreen() {
       </TouchableOpacity>
 
       <Text style={styles.note}>
-        Note: Your request will be reviewed by our admin team. You will be notified once your university is added to the system.
+        Note: Your request will be reviewed by our admin team. You will be notified once your {institutionLabel.toLowerCase()} is added to the system.
       </Text>
     </ScrollView>
   );

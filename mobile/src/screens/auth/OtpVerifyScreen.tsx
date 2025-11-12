@@ -3,12 +3,18 @@ import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert } from 'reac
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { useAuthStore } from '../../store/authStore';
 import apiClient from '../../api/client';
+import * as SecureStore from 'expo-secure-store';
 
 export default function OtpVerifyScreen() {
   const route = useRoute();
   const navigation = useNavigation();
   const { login } = useAuthStore();
   const email = (route.params as any)?.email || '';
+  const universityName = (route.params as any)?.universityName || null;
+  const organizationName = (route.params as any)?.organizationName || null;
+  const institutionType = (route.params as any)?.institutionType || null;
+  const accountType = (route.params as any)?.accountType || null;
+  const isPasswordReset = (route.params as any)?.isPasswordReset || false;
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
@@ -25,18 +31,69 @@ export default function OtpVerifyScreen() {
       // Check if user has password set
       const hasPassword = response?.hasPassword ?? false;
       
-      console.log('[OTP VERIFY] Login response:', { hasPassword });
+      // Check account type preference
+      const lastAccountType = await SecureStore.getItemAsync('lastAccountType');
+      const isProfessional = lastAccountType === 'professional';
       
-      // Always navigate to PIN setup if password is not set
-      // This ensures professional flow: OTP → PIN Setup → Dashboard
+      const userData = response?.user;
+      
+      console.log('[OTP VERIFY] Login response:', { 
+        hasPassword, 
+        lastAccountType, 
+        isProfessional,
+        hasName: !!userData?.name,
+        hasDOB: !!userData?.dateOfBirth
+      });
+      
+      // Check if user needs personal info (name and DOB)
+      const needsPersonalInfo = !userData?.name || userData.name.trim().length < 2 || !userData?.dateOfBirth;
+      
+      // For professionals, check if they need to select organization/university
+      if (isProfessional) {
+        // Check if user already has organizationId or universityId set
+        const hasInstitution = userData?.organizationId || userData?.universityId;
+        
+        if (!hasInstitution) {
+          // Navigate to professional onboarding to select organization/university
+          // Pass detected institution info to prefill
+          console.log('[OTP VERIFY] Professional needs to select organization/university');
+          (navigation as any).replace('ProfessionalOnboarding', { 
+            email,
+            universityName,
+            organizationName,
+            institutionType,
+          });
+          return;
+        }
+      }
+      
+      // If this is a password reset flow, navigate to password setup after verification
+      if (isPasswordReset) {
+        console.log('[OTP VERIFY] Password reset flow - navigating to PasswordSetup');
+        (navigation as any).replace('PasswordSetup', {
+          isPasswordReset: true,
+        });
+        return;
+      }
+
+      // If user needs personal info, show PersonalInfo screen first
+      if (needsPersonalInfo) {
+        console.log('[OTP VERIFY] User needs personal info (name/DOB), navigating to PersonalInfo');
+        (navigation as any).replace('PersonalInfo', { 
+          accountType: lastAccountType || 'student',
+          universityName: lastAccountType === 'student' ? universityName : null,
+          organizationName: lastAccountType === 'professional' ? organizationName : null,
+        });
+        return;
+      }
+      
+      // If user has personal info but no password, navigate to password setup
       if (!hasPassword) {
-        console.log('[OTP VERIFY] User has no PIN/password, navigating to PasswordSetup');
-        // Use replace to prevent going back to OTP screen
+        console.log('[OTP VERIFY] User has personal info but no PIN/password, navigating to PasswordSetup');
         (navigation as any).replace('PasswordSetup');
       } else {
-        console.log('[OTP VERIFY] User has PIN/password, App.tsx will navigate to main app');
-        // User has PIN, App.tsx will automatically switch to MainNavigator
-        // No need to navigate manually
+        console.log('[OTP VERIFY] User has all info and PIN/password, App.tsx will navigate to main app');
+        // User has everything, App.tsx will automatically switch to MainNavigator
       }
     } catch (error: any) {
       console.error('[OTP VERIFY] Verification error:', error);
@@ -62,8 +119,14 @@ export default function OtpVerifyScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Enter Verification Code</Text>
-      <Text style={styles.subtitle}>We sent a code to {email}</Text>
+      <Text style={styles.title}>
+        {isPasswordReset ? 'Enter Password Reset Code' : 'Enter Verification Code'}
+      </Text>
+      <Text style={styles.subtitle}>
+        {isPasswordReset 
+          ? `We sent a password reset code to ${email}`
+          : `We sent a code to ${email}`}
+      </Text>
       <TextInput
         style={styles.input}
         placeholder="123456"

@@ -19,6 +19,7 @@ import {
   BellOutlined,
   SearchOutlined,
   GlobalOutlined,
+  TrophyOutlined,
 } from '@ant-design/icons';
 import { useState } from 'react';
 import { useAuthStore } from '@/store/authStore';
@@ -52,21 +53,33 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       roles: ['super_admin', 'admin'],
     },
     {
-      key: '/countries',
-      icon: <GlobalOutlined />,
-      label: 'Countries',
-      roles: ['super_admin'],
+      key: '/name-verifications',
+      icon: <UserOutlined />,
+      label: 'Name Verifications',
+      roles: ['super_admin', 'admin'],
     },
     {
-      key: '/universities',
-      icon: <BankOutlined />,
-      label: 'Universities',
-      roles: ['super_admin'],
+      key: '/badges',
+      icon: <TrophyOutlined />,
+      label: 'Badges',
+      roles: ['super_admin', 'admin'],
     },
+        {
+          key: '/countries',
+          icon: <GlobalOutlined />,
+          label: 'Countries',
+          roles: ['super_admin'],
+        },
+        {
+          key: '/institutions',
+          icon: <BankOutlined />,
+          label: 'Institutions',
+          roles: ['super_admin'],
+        },
     {
-      key: '/university-requests',
+      key: '/institution-requests',
       icon: <FileTextOutlined />,
-      label: 'University Requests',
+      label: 'Institution Requests',
       roles: ['super_admin'],
     },
     {

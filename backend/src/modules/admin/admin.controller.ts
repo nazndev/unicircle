@@ -136,6 +136,15 @@ export class AdminController {
     return this.adminService.getAuditLogs(user.userId, parseInt(page), parseInt(limit));
   }
 
+  @Get('universities')
+  @ApiOperation({ summary: 'Get all universities' })
+  async getUniversities(
+    @CurrentUser() user: any,
+    @Query('countryId') countryId?: string,
+  ) {
+    return this.adminService.getUniversities(user.userId, countryId);
+  }
+
   @Post('universities')
   @ApiOperation({ summary: 'Create a new university' })
   async createUniversity(@CurrentUser() user: any, @Body() data: any) {
@@ -154,30 +163,158 @@ export class AdminController {
     return this.adminService.deleteUniversity(user.userId, id);
   }
 
+  @Get('institution-requests')
+  @ApiOperation({ summary: 'Get all institution requests (universities and organizations)' })
+  async getInstitutionRequests(
+    @CurrentUser() user: any,
+    @Query('status') status?: string,
+  ) {
+    return this.adminService.getInstitutionRequests(user.userId, status);
+  }
+
+  @Post('institution-requests/:id/approve')
+  @ApiOperation({ summary: 'Approve an institution request and create university or organization' })
+  async approveInstitutionRequest(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Body() dto: { institutionType: 'university' | 'organization' },
+  ) {
+    return this.adminService.approveInstitutionRequest(user.userId, id, dto.institutionType);
+  }
+
+  @Post('institution-requests/:id/reject')
+  @ApiOperation({ summary: 'Reject an institution request' })
+  async rejectInstitutionRequest(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.adminService.rejectInstitutionRequest(user.userId, id);
+  }
+
+  // Backward compatibility endpoints
   @Get('university-requests')
-  @ApiOperation({ summary: 'Get all university requests' })
+  @ApiOperation({ summary: '[Deprecated] Get all institution requests - use /institution-requests instead' })
   async getUniversityRequests(
     @CurrentUser() user: any,
     @Query('status') status?: string,
   ) {
-    return this.adminService.getUniversityRequests(user.userId, status);
+    return this.adminService.getInstitutionRequests(user.userId, status);
   }
 
   @Post('university-requests/:id/approve')
-  @ApiOperation({ summary: 'Approve a university request and create university' })
-  async approveUniversityRequest(@CurrentUser() user: any, @Param('id') id: string) {
-    return this.adminService.approveUniversityRequest(user.userId, id);
+  @ApiOperation({ summary: '[Deprecated] Approve institution request - use /institution-requests/:id/approve instead' })
+  async approveUniversityRequest(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Body() dto?: { institutionType?: 'university' | 'organization' },
+  ) {
+    // Default to university for backward compatibility
+    const institutionType = dto?.institutionType || 'university';
+    return this.adminService.approveInstitutionRequest(user.userId, id, institutionType);
   }
 
   @Post('university-requests/:id/reject')
-  @ApiOperation({ summary: 'Reject a university request' })
+  @ApiOperation({ summary: '[Deprecated] Reject institution request - use /institution-requests/:id/reject instead' })
   async rejectUniversityRequest(@CurrentUser() user: any, @Param('id') id: string) {
-    return this.adminService.rejectUniversityRequest(user.userId, id);
+    return this.adminService.rejectInstitutionRequest(user.userId, id);
   }
 
   @Post('cleanup-stuck-users')
   @ApiOperation({ summary: 'Clean up stuck users (users who never received emails or completed verification)' })
   async cleanupStuckUsers(@CurrentUser() user: any) {
     return this.adminService.cleanupStuckUsers(user.userId);
+  }
+
+  // Organization Management
+  @Get('organizations')
+  @ApiOperation({ summary: 'Get all organizations' })
+  async getOrganizations(
+    @CurrentUser() user: any,
+    @Query('countryId') countryId?: string,
+  ) {
+    return this.adminService.getOrganizations(user.userId, countryId);
+  }
+
+  @Post('organizations')
+  @ApiOperation({ summary: 'Create a new organization' })
+  async createOrganization(@CurrentUser() user: any, @Body() data: any) {
+    return this.adminService.createOrganization(user.userId, data);
+  }
+
+  @Put('organizations/:id')
+  @ApiOperation({ summary: 'Update an organization' })
+  async updateOrganization(@CurrentUser() user: any, @Param('id') id: string, @Body() data: any) {
+    return this.adminService.updateOrganization(user.userId, id, data);
+  }
+
+  @Delete('organizations/:id')
+  @ApiOperation({ summary: 'Delete an organization' })
+  async deleteOrganization(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.adminService.deleteOrganization(user.userId, id);
+  }
+
+  // Badge Management
+  @Get('badges')
+  @ApiOperation({ summary: 'Get all badge requests (pending/verified/all)' })
+  async getBadgeRequests(
+    @CurrentUser() user: any,
+    @Query('status') status?: 'pending' | 'verified' | 'all',
+  ) {
+    return this.adminService.getBadgeRequests(user.userId, status);
+  }
+
+  @Post('badges/:id/verify')
+  @ApiOperation({ summary: 'Verify a badge' })
+  async verifyBadge(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.adminService.verifyBadge(user.userId, id);
+  }
+
+  @Post('badges/:id/reject')
+  @ApiOperation({ summary: 'Reject a badge request' })
+  async rejectBadge(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+    @Body() dto?: { reason?: string },
+  ) {
+    return this.adminService.rejectBadge(user.userId, id, dto?.reason);
+  }
+
+  @Delete('badges/:id')
+  @ApiOperation({ summary: 'Remove a badge (admin only)' })
+  async removeBadge(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.adminService.removeBadge(user.userId, id);
+  }
+
+  // Cache Management
+  @Post('cache/reload')
+  @ApiOperation({ summary: 'Reload cache (invalidate and rebuild)' })
+  async reloadCache(@CurrentUser() user: any) {
+    return this.adminService.reloadCache(user.userId);
+  }
+
+  @Get('cache/stats')
+  @ApiOperation({ summary: 'Get cache statistics' })
+  async getCacheStats(@CurrentUser() user: any) {
+    return this.adminService.getCacheStats(user.userId);
+  }
+
+  // Name Verification Management
+  @Get('name-verifications')
+  @ApiOperation({ summary: 'Get pending name verification requests' })
+  async getNameVerificationRequests(@CurrentUser() user: any) {
+    return this.adminService.getNameVerificationRequests(user.userId);
+  }
+
+  @Post('name-verifications/:id/approve')
+  @ApiOperation({ summary: 'Approve a name verification request' })
+  async approveNameVerification(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.adminService.approveNameVerification(id, user.userId);
+  }
+
+  @Post('name-verifications/:id/reject')
+  @ApiOperation({ summary: 'Reject a name verification request' })
+  async rejectNameVerification(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+    @Body() dto?: { reason?: string },
+  ) {
+    return this.adminService.rejectNameVerification(id, user.userId, dto?.reason);
   }
 }

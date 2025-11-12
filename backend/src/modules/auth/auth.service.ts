@@ -3,6 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import { UploadService } from '../upload/upload.service';
+import { ReferralService } from '../referral/referral.service';
 import { RequestCodeDto, VerifyCodeDto, AlumniRegisterDto, TeacherRegisterDto } from './dto';
 import * as crypto from 'crypto';
 import * as bcrypt from 'bcrypt';
@@ -14,6 +15,7 @@ export class AuthService {
     private jwtService: JwtService,
     private mailService: MailService,
     private uploadService: UploadService,
+    private referralService: ReferralService,
   ) {}
 
   async requestCode(email: string) {
@@ -35,7 +37,7 @@ export class AuthService {
       throw new BadRequestException('Invalid email format');
     }
 
-    // Validate email domain and find university
+    // Validate email domain and find university or organization
     const emailDomain = email.split('@')[1];
     
     if (!emailDomain) {
@@ -43,9 +45,11 @@ export class AuthService {
       throw new BadRequestException('Invalid email domain');
     }
 
-    console.log('[AUTH] Looking for university with domain:', emailDomain);
+    console.log('[AUTH] Looking for university or organization with domain:', emailDomain);
 
+    // First check for university
     let university;
+    let organization;
     try {
       university = await this.prisma.university.findFirst({
         where: {
@@ -54,26 +58,49 @@ export class AuthService {
           country: {
             active: true, // Only allow universities from active countries
           },
-        },
+        } as any,
         include: {
           country: true,
-        },
+        } as any,
       }) as any;
       console.log('[AUTH] University found:', university ? university.name : 'NOT FOUND');
+      
+      // If no university, check for organization
+      if (!university) {
+        organization = await (this.prisma as any).organization.findFirst({
+          where: {
+            domain: emailDomain,
+            active: true,
+            country: {
+              active: true, // Only allow organizations from active countries
+            },
+          },
+          include: {
+            country: true,
+          },
+        });
+        console.log('[AUTH] Organization found:', organization ? organization.name : 'NOT FOUND');
+      }
     } catch (error: any) {
-      console.error('[AUTH] Database error while finding university:', error);
+      console.error('[AUTH] Database error while finding university/organization:', error);
       console.error('[AUTH] Error stack:', error?.stack);
-      throw new BadRequestException('Unable to verify university. Please try again later.');
+      throw new BadRequestException('Unable to verify email domain. Please try again later.');
     }
 
-    if (!university) {
-      console.error('[AUTH] University not found for domain:', emailDomain);
-      throw new BadRequestException('Email domain not recognized or university is not available in your region. Please use your university email or contact support.');
+    if (!university && !organization) {
+      console.error('[AUTH] Neither university nor organization found for domain:', emailDomain);
+      throw new BadRequestException('Email domain not recognized. Please use your university or organization email, or contact support.');
     }
 
-    // Return university name in response for UI display
+    // Return institution name in response for UI display
     const response: any = { message: 'Verification code sent to your email' };
-    response.universityName = university.name;
+    if (university) {
+      response.universityName = university.name;
+      response.institutionType = 'university';
+    } else if (organization) {
+      response.organizationName = organization.name;
+      response.institutionType = 'organization';
+    }
 
     // Generate 6-digit code
     const code = crypto.randomInt(100000, 999999).toString();
@@ -86,41 +113,84 @@ export class AuthService {
       console.log('[AUTH] Looking for existing user with email:', email);
       user = await this.prisma.user.findUnique({
         where: { email },
-        include: { university: true },
-      });
+        include: { 
+          university: true,
+          organization: true,
+        } as any,
+      }) as any;
 
       if (!user) {
         console.log('[AUTH] User not found, creating new user');
-        // Create new user
+        // Create new user - determine if student or professional
+        const userData: any = {
+          email,
+          registrationSource: university ? 'student_email' : 'professional_email',
+          verificationStatus: 'pending',
+          profileMode: university ? 'student' : 'professional',
+          universityEmailVerified: university ? true : false,
+          officeEmailVerified: organization ? true : false,
+        };
+        
+        if (university) {
+          userData.universityId = university.id;
+        } else if (organization) {
+          userData.organizationId = organization.id;
+        }
+        
         user = await this.prisma.user.create({
-          data: {
-            email,
-            universityId: university.id,
-            registrationSource: 'student_email',
-            verificationStatus: 'pending',
-          },
-          include: { university: true },
-        });
-        console.log('[AUTH] New user created:', user.id);
+          data: userData,
+          include: { 
+            university: true,
+            organization: true,
+          } as any,
+        }) as any;
+        console.log('[AUTH] New user created:', user.id, 'profileMode:', user.profileMode);
       } else {
-        console.log('[AUTH] User found:', user.id, 'universityId:', user.universityId, 'isVerified:', user.isVerified);
+        console.log('[AUTH] User found:', user.id, 'universityId:', user.universityId, 'organizationId:', (user as any).organizationId, 'isVerified:', user.isVerified);
         // Check if this is a returning unverified user
         if (!user.isVerified) {
           isReturningUser = true;
           console.log('[AUTH] Returning unverified user detected');
         }
-        // User exists - verify university is still valid
-        if (!user.universityId || user.universityId !== university.id) {
-          console.log('[AUTH] Updating user university from', user.universityId, 'to', university.id);
-          // Update user's university if it changed or was missing
-          user = await this.prisma.user.update({
-            where: { id: user.id },
-            data: {
-              universityId: university.id,
-            },
-            include: { university: true },
-          });
-          console.log('[AUTH] User university updated');
+        // User exists - verify institution is still valid
+        if (university) {
+          if (!user.universityId || user.universityId !== university.id) {
+            console.log('[AUTH] Updating user university from', user.universityId, 'to', university.id);
+            user = await this.prisma.user.update({
+              where: { id: user.id },
+              data: {
+                universityId: university.id,
+                organizationId: null, // Clear organization if switching to university
+                profileMode: 'student',
+                universityEmailVerified: true,
+                officeEmailVerified: false,
+              } as any,
+              include: { 
+                university: true,
+                organization: true,
+              } as any,
+            }) as any;
+            console.log('[AUTH] User university updated');
+          }
+        } else if (organization) {
+          if ((user as any).organizationId !== organization.id) {
+            console.log('[AUTH] Updating user organization from', (user as any).organizationId, 'to', organization.id);
+            user = await this.prisma.user.update({
+              where: { id: user.id },
+              data: {
+                organizationId: organization.id,
+                // DO NOT clear universityId - preserve original university affiliation
+                profileMode: 'professional',
+                officeEmailVerified: true,
+                // Preserve universityEmailVerified if already set
+              } as any,
+              include: { 
+                university: true,
+                organization: true,
+              } as any,
+            }) as any;
+            console.log('[AUTH] User organization updated');
+          }
         }
       }
     } catch (error: any) {
@@ -196,7 +266,7 @@ export class AuthService {
     return response;
   }
 
-  async verifyCode(email: string, code: string) {
+  async verifyCode(email: string, code: string, referralCode?: string) {
     console.log('[AUTH] Verify code request:', { email, codeLength: code?.length });
     
     let user;
@@ -261,7 +331,7 @@ export class AuthService {
           university: {
             include: {
               country: true,
-            },
+            } as any,
           },
         },
       }) as any;
@@ -282,13 +352,56 @@ export class AuthService {
       });
 
       console.log('[AUTH] Updating user verification status');
+      // Determine if this is a university or organization email
+      const emailDomain = email.split('@')[1];
+      const isUniversityEmail = user.universityId && user.university;
+      const isOrganizationEmail = (user as any).organizationId && (user as any).organization;
+      
+      // Handle referral code if provided
+      let referrerId: string | null = null;
+      if (referralCode) {
+        referrerId = await this.referralService.validateReferralCode(referralCode);
+        if (referrerId && referrerId !== user.id) {
+          console.log('[AUTH] Valid referral code provided, referrer:', referrerId);
+        } else {
+          console.log('[AUTH] Invalid or self-referral code, ignoring');
+          referrerId = null;
+        }
+      }
+      
+      const updateData: any = {
+        isVerified: true,
+        verificationStatus: 'approved',
+        universityEmailVerified: isUniversityEmail ? true : undefined, // Only set if university email
+        officeEmailVerified: isOrganizationEmail ? true : undefined, // Only set if organization email
+      };
+      
+      // Set referredBy if valid referral code provided
+      if (referrerId) {
+        updateData.referredBy = referrerId;
+      }
+      
       await this.prisma.user.update({
         where: { id: user.id },
-        data: {
-          isVerified: true,
-          verificationStatus: 'approved',
-        },
+        data: updateData,
       });
+      
+      // Award referral points if this is a new signup with referral
+      if (referrerId) {
+        // Check if this is a new user (just created) or existing user
+        const isNewUser = !user.isVerified;
+        
+        if (isNewUser) {
+          // Award signup points
+          await this.referralService.awardSignupPoints(referrerId, user.id);
+          
+          // Check for domain match bonus
+          await this.referralService.awardDomainMatchBonus(referrerId, user.id);
+        }
+        
+        // Award verification points
+        await this.referralService.awardVerificationPoints(referrerId, user.id);
+      }
 
       console.log('[AUTH] Generating tokens');
       const tokens = await this.generateTokens(user.id);
@@ -379,7 +492,7 @@ export class AuthService {
             where: { id: dto.universityId },
             include: {
               country: true,
-            },
+            } as any,
           }) as any;
 
           if (!university || !university.active) {
@@ -428,8 +541,8 @@ export class AuthService {
         where: { id: dto.universityId },
         include: {
           country: true,
-        },
-      }) as any;
+        } as any,
+      } as any) as any;
 
       if (!university || !university.active) {
         throw new BadRequestException('University not found or inactive');
@@ -479,7 +592,7 @@ export class AuthService {
       where: { id: dto.universityId },
       include: {
         country: true,
-      },
+      } as any,
     }) as any;
 
     if (!university || !university.active) {
@@ -584,7 +697,7 @@ export class AuthService {
       where: { id: dto.universityId },
       include: {
         country: true,
-      },
+      } as any,
     }) as any;
 
     if (!university || !university.active) {
@@ -611,6 +724,12 @@ export class AuthService {
     }
 
     // Move temp files to user's folder if any documents are temp URLs
+    // Teacher is now a badge, not a profileMode
+    // Set profileMode to 'student' (default) and isTeacher badge to true
+    // If verified with university email, teacherVerified = true, otherwise pending approval
+    const teacherVerified = isUniversityEmail;
+    const teacherStatus = isUniversityEmail ? 'approved' : 'pending';
+
     let finalDocuments = dto.documents || [];
     if (finalDocuments.length > 0) {
       // Create user first (we need userId to move files)
@@ -620,12 +739,17 @@ export class AuthService {
           name: dto.fullName,
           universityId: dto.universityId,
           department: dto.department,
-          registrationSource: 'teacher_manual',
-          profileMode: 'teacher',
-          verificationStatus,
-          isVerified,
+          registrationSource: 'student_email', // Teachers register with university email
+          profileMode: 'student', // Base profileMode
+          isTeacher: true, // Teacher badge
+          teacherVerified: teacherVerified, // Verified if university email
+          isAlumni: true, // Teachers are alumni (they have university affiliation)
+          alumniVerified: teacherVerified, // Verified if university email
+          universityEmailVerified: isUniversityEmail,
+          verificationStatus: teacherStatus,
+          isVerified: isUniversityEmail,
           documents: finalDocuments, // Temporary, will be updated
-        },
+        } as any,
       });
 
       // Move temp files to user's folder
@@ -637,7 +761,7 @@ export class AuthService {
         data: {
           documents: finalDocuments,
         },
-      });
+      } as any);
 
       // Only create teacher approval request if manual registration (not university email)
       if (!isUniversityEmail) {
@@ -663,12 +787,17 @@ export class AuthService {
         name: dto.fullName,
         universityId: dto.universityId,
         department: dto.department,
-        registrationSource: 'teacher_manual',
-        profileMode: 'teacher',
-        verificationStatus,
-        isVerified,
+        registrationSource: 'student_email', // Teachers register with university email
+        profileMode: 'student', // Base profileMode
+        isTeacher: true, // Teacher badge
+        teacherVerified: teacherVerified, // Verified if university email
+        isAlumni: true, // Teachers are alumni (they have university affiliation)
+        alumniVerified: teacherVerified, // Verified if university email
+        universityEmailVerified: isUniversityEmail,
+        verificationStatus: teacherStatus,
+        isVerified: isUniversityEmail,
         documents: [],
-      },
+      } as any,
     });
 
     // Only create teacher approval request if manual registration (not university email)
@@ -760,7 +889,7 @@ export class AuthService {
     };
   }
 
-  async requestUniversity(data: { universityName: string; countryId: string; studentEmail: string }) {
+  async requestInstitution(data: { institutionName: string; countryId: string; studentEmail: string }) {
     // Validate email format
     if (!data.studentEmail.includes('@')) {
       throw new BadRequestException('Invalid email address');
@@ -768,17 +897,21 @@ export class AuthService {
 
     const domain = data.studentEmail.split('@')[1];
 
-    // Check if university already exists
-    const existing = await this.prisma.university.findFirst({
+    // Check if institution (university or organization) already exists
+    const existingUniversity = await this.prisma.university.findFirst({
       where: { domain, active: true },
     });
 
-    if (existing) {
-      throw new BadRequestException('This university already exists in our system');
+    const existingOrganization = await this.prisma.organization.findFirst({
+      where: { domain, active: true },
+    });
+
+    if (existingUniversity || existingOrganization) {
+      throw new BadRequestException('This institution already exists in our system');
     }
 
     // Check if request already exists
-    const existingRequest = await this.prisma.universityRequest.findFirst({
+    const existingRequest = await (this.prisma as any).institutionRequest.findFirst({
       where: {
         domain,
         status: 'pending',
@@ -786,13 +919,13 @@ export class AuthService {
     });
 
     if (existingRequest) {
-      throw new BadRequestException('A request for this university is already pending');
+      throw new BadRequestException('A request for this institution is already pending');
     }
 
     // Validate countryId exists and is active
     let countryId: string | null = null;
     if (data.countryId) {
-      const country = await this.prisma.country.findUnique({
+      const country = await (this.prisma as any).country.findUnique({
         where: { id: data.countryId },
       });
       if (country) {
@@ -805,18 +938,19 @@ export class AuthService {
       }
     }
 
-    // Create request
-    const request = await this.prisma.universityRequest.create({
+    // Create request (type will be set by admin when approving)
+    const request = await (this.prisma as any).institutionRequest.create({
       data: {
-        universityName: data.universityName,
+        institutionName: data.institutionName,
         countryId: countryId,
         studentEmail: data.studentEmail,
         domain,
+        institutionType: null, // Admin will decide when approving
       },
     });
 
     return {
-      message: 'University request submitted successfully. We will review it and add your university soon.',
+      message: 'Institution request submitted successfully. We will review it and add your institution soon.',
       requestId: request.id,
     };
   }
@@ -849,9 +983,9 @@ export class AuthService {
         university: {
           include: {
             country: true,
-          },
+          } as any,
         },
-      },
+      } as any,
     }) as any;
 
     if (!user) {
@@ -915,6 +1049,7 @@ export class AuthService {
       where: { email },
       select: {
         id: true,
+        profileMode: true,
         isVerified: true,
         passwordHash: true,
         isBlocked: true,
@@ -926,6 +1061,7 @@ export class AuthService {
         exists: false,
         hasPassword: false,
         isVerified: false,
+        profileMode: null,
       };
     }
 
@@ -934,6 +1070,84 @@ export class AuthService {
       hasPassword: !!user.passwordHash,
       isVerified: user.isVerified,
       isBlocked: user.isBlocked,
+      profileMode: user.profileMode,
+    };
+  }
+
+  async forgetPassword(email: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+    });
+
+    if (!user) {
+      // Don't reveal if user exists or not for security
+      return { message: 'If an account exists with this email, a password reset code has been sent.' };
+    }
+
+    if (!user.isVerified) {
+      throw new BadRequestException('Account not verified. Please verify your email first.');
+    }
+
+    if (user.isBlocked) {
+      throw new ForbiddenException('Account is blocked');
+    }
+
+    // Generate OTP code for password reset
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date();
+    expiresAt.setMinutes(expiresAt.getMinutes() + 10); // 10 minutes expiry
+
+    // Create or update verification code
+    const existing = await this.prisma.emailVerification.findFirst({
+      where: { userId: user.id, consumed: false },
+    });
+
+    if (existing) {
+      await this.prisma.emailVerification.update({
+        where: { id: existing.id },
+        data: {
+          code,
+          expiresAt,
+          consumed: false,
+        },
+      });
+    } else {
+      await this.prisma.emailVerification.create({
+        data: {
+          userId: user.id,
+          code,
+          expiresAt,
+        },
+      });
+    }
+
+    // Send password reset code via email
+    try {
+      await this.mailService.sendPasswordResetCode(email, code);
+    } catch (error) {
+      console.error(`Failed to send password reset code to ${email}:`, error);
+      // Still return success - user can retry
+    }
+
+    return { 
+      message: 'If an account exists with this email, a password reset code has been sent.',
+      // Return code in development only (for testing)
+      ...(process.env.NODE_ENV === 'development' ? { code } : {}),
+    };
+  }
+
+  async checkDevice(userId: string) {
+    // Check if user has any active device bindings
+    const devices = await (this.prisma as any).device.findMany({
+      where: {
+        userId,
+        isActive: true,
+      },
+    });
+
+    return {
+      isBound: devices.length > 0,
+      deviceCount: devices.length,
     };
   }
 

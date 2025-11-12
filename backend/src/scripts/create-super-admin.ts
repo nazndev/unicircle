@@ -23,6 +23,8 @@ async function createSuperAdmin() {
         passwordHash: hashedPassword,
         isVerified: true,
         verificationStatus: 'approved',
+        onboardingCompleted: true,
+        isBlocked: false,
       },
     });
     console.log('✅ Super admin updated successfully!');
@@ -38,6 +40,8 @@ async function createSuperAdmin() {
         isVerified: true,
         verificationStatus: 'approved',
         profileMode: 'professional',
+        onboardingCompleted: true,
+        isBlocked: false,
       },
     });
     console.log('✅ Super admin created successfully!');

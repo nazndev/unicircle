@@ -1,12 +1,15 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, Platform } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { useAuthStore } from '../../store/authStore';
 import apiClient from '../../api/client';
 import * as Application from 'expo-application';
+import * as SecureStore from 'expo-secure-store';
 
 export default function PasswordSetupScreen() {
   const navigation = useNavigation();
+  const route = useRoute();
+  const isPasswordReset = (route.params as any)?.isPasswordReset || false;
   const { updateUser, needsPinSetup } = useAuthStore();
   
   // Ensure we're on this screen if needsPinSetup is true
@@ -71,13 +74,25 @@ export default function PasswordSetupScreen() {
       // Clear needsPinSetup flag
       useAuthStore.getState().setNeedsPinSetup(false);
       
-      // If user doesn't have a name, navigate to ProfileSetup
-      if (!userData?.name || userData.name.trim().length < 2) {
-        console.log('[PASSWORD SETUP] User has no name, navigating to ProfileSetup');
-        (navigation as any).replace('ProfileSetup');
+      // If password reset, just navigate to main app (password is updated)
+      if (isPasswordReset) {
+        console.log('[PASSWORD SETUP] Password reset complete, App.tsx will navigate to main app');
+        Alert.alert('Success', 'Your PIN has been reset successfully.');
+        // App.tsx will automatically switch to MainNavigator
+        return;
+      }
+      
+      // Check if user needs to provide personal info (name, DOB, terms)
+      const needsPersonalInfo = !userData?.name || userData.name.trim().length < 2 || !userData?.dateOfBirth;
+      
+      if (needsPersonalInfo) {
+        console.log('[PASSWORD SETUP] User needs personal info, navigating to PersonalInfo');
+        // Get account type from SecureStore
+        const lastAccountType = await SecureStore.getItemAsync('lastAccountType');
+        (navigation as any).replace('PersonalInfo', { accountType: lastAccountType || 'student' });
       } else {
-        console.log('[PASSWORD SETUP] User has name, App.tsx will navigate to main app');
-        // User has name, App.tsx will automatically switch to MainNavigator
+        console.log('[PASSWORD SETUP] User has all info, App.tsx will navigate to main app');
+        // User has all info, App.tsx will automatically switch to MainNavigator
       }
     } catch (error: any) {
       const errorMessage = error.response?.data?.message || 'Failed to set PIN';
@@ -146,9 +161,11 @@ export default function PasswordSetupScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Set Your PIN</Text>
+      <Text style={styles.title}>{isPasswordReset ? 'Reset Your PIN' : 'Set Your PIN'}</Text>
       <Text style={styles.subtitle}>
-        Create a secure PIN (4-6 digits) for quick login. This will also bind your device for faster access.
+        {isPasswordReset 
+          ? 'Enter a new PIN (4-6 digits) to replace your current one.'
+          : 'Create a secure PIN (4-6 digits) for quick login. This will also bind your device for faster access.'}
       </Text>
 
       <View style={styles.inputContainer}>
@@ -192,16 +209,18 @@ export default function PasswordSetupScreen() {
         onPress={handleSetPassword}
         disabled={loading}
       >
-        <Text style={styles.buttonText}>{loading ? 'Setting PIN...' : 'Set PIN'}</Text>
+        <Text style={styles.buttonText}>{loading ? (isPasswordReset ? 'Resetting PIN...' : 'Setting PIN...') : (isPasswordReset ? 'Reset PIN' : 'Set PIN')}</Text>
       </TouchableOpacity>
 
-      <TouchableOpacity
-        style={styles.skipButton}
-        onPress={handleSkip}
-        disabled={loading}
-      >
-        <Text style={styles.skipButtonText}>Skip for now</Text>
-      </TouchableOpacity>
+      {!isPasswordReset && (
+        <TouchableOpacity
+          style={styles.skipButton}
+          onPress={handleSkip}
+          disabled={loading}
+        >
+          <Text style={styles.skipButtonText}>Skip for now</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }

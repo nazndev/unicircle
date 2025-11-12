@@ -8,14 +8,15 @@ generator client {
 }
 
 model Country {
-  id                 String              @id @default(uuid())
-  name               String              @unique
-  code               String?             @unique // ISO 3166-1 alpha-2 code (e.g., "US", "BD", "GB")
-  active             Boolean             @default(false) // Countries are inactive by default
-  universities       University[]
-  universityRequests UniversityRequest[]
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @default(now()) @updatedAt
+  id                  String               @id @default(uuid())
+  name                String               @unique
+  code                String?              @unique // ISO 3166-1 alpha-2 code (e.g., "US", "BD", "GB")
+  active              Boolean              @default(false) // Countries are inactive by default
+  universities        University[]
+  organizations       Organization[]
+  institutionRequests InstitutionRequest[]
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @default(now()) @updatedAt
 
   @@index([active])
   @@index([name])
@@ -36,75 +37,120 @@ model University {
   @@index([countryId])
 }
 
-model UniversityRequest {
-  id             String    @id @default(uuid())
-  universityName String
-  countryId      String?
-  country        Country?  @relation(fields: [countryId], references: [id])
-  studentEmail   String
-  domain         String // Extracted from studentEmail
-  status         String    @default("pending") // pending | approved | rejected
-  requestedBy    String? // User ID if user is logged in
-  reviewedBy     String? // Admin ID
-  reviewedAt     DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @default(now()) @updatedAt
+model Organization {
+  id          String   @id @default(uuid())
+  name        String   @unique // e.g., "British American Tobacco", "Unilever"
+  domain      String?  @unique // e.g., "bat.com", "unilever.com"
+  countryId   String?
+  country     Country? @relation(fields: [countryId], references: [id])
+  active      Boolean  @default(true)
+  type        String? // e.g., "corporate", "ngo", "government", "startup"
+  website     String?
+  description String?
+  users       User[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  @@index([countryId])
+  @@index([domain])
+}
+
+model InstitutionRequest {
+  id              String    @id @default(uuid())
+  institutionName String // Generic name (was universityName)
+  institutionType String? // "university" | "organization" - set by admin when approving
+  countryId       String?
+  country         Country?  @relation(fields: [countryId], references: [id])
+  studentEmail    String // User's email (can be student or professional)
+  domain          String // Extracted from studentEmail
+  status          String    @default("pending") // pending | approved | rejected
+  requestedBy     String? // User ID if user is logged in
+  reviewedBy      String? // Admin ID
+  reviewedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @default(now()) @updatedAt
 
   @@index([status])
   @@index([createdAt])
   @@index([countryId])
+  @@index([institutionType])
 }
 
 model User {
-  id                    String                @id @default(uuid())
-  name                  String?
-  email                 String                @unique
-  passwordHash          String?
-  universityId          String?
-  university            University?           @relation(fields: [universityId], references: [id])
-  department            String?
-  programme             String?
-  semester              String?
-  gender                String?
-  avatarUrl             String?
-  registrationSource    String                @default("student_email") // student_email | alumni_manual | teacher_manual
-  verificationStatus    String                @default("pending") // pending | approved | rejected
-  documents             Json? // uploaded alumni proofs
-  isVerified            Boolean               @default(false)
-  isBlocked             Boolean               @default(false)
-  allowCrossCampus      Boolean               @default(false)
-  profileMode           String                @default("student") // student | alumni | teacher
-  role                  String                @default("user") // user | admin | super_admin
-  onboardingCompleted   Boolean               @default(false)
-  currentStatus         String?
-  headline              String?
-  experience            Json?
-  skills                Json?
-  researchInterests     Json? // For teachers: research areas/interests
-  createdAt             DateTime              @default(now())
-  crushesSent           Crush[]               @relation("CrushSender")
-  crushesRecv           Crush[]               @relation("CrushReceiver")
-  matchesA              Match[]               @relation("MatchA")
-  matchesB              Match[]               @relation("MatchB")
-  reportsFiled          Report[]              @relation("ReportBy")
-  reportsOn             Report[]              @relation("ReportOn")
-  groupMembers          GroupMember[]
-  groupsCreated         Group[]
-  posts                 Post[]
-  jobsOwned             Job[]
-  jobApplications       JobApplication[]
-  marketplaceListings   MarketplaceListing[]
-  transactions          Transaction[]
-  chatMessages          ChatMessage[]
-  groupMessages         GroupMessage[]
-  postComments          PostComment[]
-  postLikes             PostLike[]
-  alumniApprovals       AlumniApproval[]
-  teacherApprovals      TeacherApproval[]
-  emailVerifications    EmailVerification[]
-  devices               Device[]
-  researchOpportunities ResearchOpportunity[] // Teachers publish research
-  researchApplications  ResearchApplication[] // Students apply
+  id                        String                @id @default(uuid())
+  name                      String?
+  nameVerified              Boolean               @default(false) // Name verification badge (requires document verification)
+  nameVerificationDocuments Json? // Documents for name verification (office ID, business card, certificate, NID, passport, etc.)
+  email                     String                @unique
+  personalEmail             String? // Personal email (separate from university/office email)
+  secondaryContact          String? // Secondary contact information (phone, email, etc.)
+  passwordHash              String?
+  universityId              String?
+  university                University?           @relation(fields: [universityId], references: [id])
+  organizationId            String? // For professionals working at companies
+  organization              Organization?         @relation(fields: [organizationId], references: [id])
+  department                String? // For students: BBA, CSE, Pharmacy, etc. | For professionals: Department/Division
+  programme                 String? // Similar to department, can be used for degree programme
+  semester                  String? // For students: current semester/year
+  gender                    String?
+  dateOfBirth               DateTime? // Date of birth
+  phoneNumber               String? // Mobile number for SMS OTP, notifications, etc.
+  passingYear               Int? // For students: expected graduation year
+  graduationYear            Int? // For alumni: actual graduation year
+  bio                       String? // Short bio/about me
+  interests                 Json? // Array of interests for matching (crush, research, etc.)
+  avatarUrl                 String?
+  registrationSource        String                @default("student_email") // student_email | alumni_manual | professional_email
+  verificationStatus        String                @default("pending") // pending | approved | rejected
+  documents                 Json? // uploaded alumni/professional proofs
+  isVerified                Boolean               @default(false)
+  isBlocked                 Boolean               @default(false)
+  allowCrossCampus          Boolean               @default(false)
+  profileMode               String                @default("student") // student | professional (base role)
+  isAlumni                  Boolean               @default(false) // Alumni badge (automatically set when transitioning from student to professional, or when directly registering as professional with university info)
+  alumniVerified            Boolean               @default(false) // Alumni verification badge (true if student→professional transition, or after admin approval for direct registration)
+  isTeacher                 Boolean               @default(false) // Teacher badge (enables research features, can be combined with professional profileMode)
+  teacherVerified           Boolean               @default(false) // Teacher verification badge (true if verified with university email, or after admin approval)
+  universityEmailVerified   Boolean               @default(false) // Badge: verified with university email
+  officeEmailVerified       Boolean               @default(false) // Badge: verified with office email
+  role                      String                @default("user") // user | admin | super_admin
+  onboardingCompleted       Boolean               @default(false)
+  currentStatus             String? // For alumni: current job/position
+  headline                  String? // Professional headline
+  experience                Json? // For alumni/teachers: work experience
+  skills                    Json? // Skills array
+  researchInterests         Json? // For teachers: research areas/interests
+  createdAt                 DateTime              @default(now())
+  crushesSent               Crush[]               @relation("CrushSender")
+  crushesRecv               Crush[]               @relation("CrushReceiver")
+  matchesA                  Match[]               @relation("MatchA")
+  matchesB                  Match[]               @relation("MatchB")
+  reportsFiled              Report[]              @relation("ReportBy")
+  reportsOn                 Report[]              @relation("ReportOn")
+  groupMembers              GroupMember[]
+  groupsCreated             Group[]
+  posts                     Post[]
+  jobsOwned                 Job[]
+  jobApplications           JobApplication[]
+  marketplaceListings       MarketplaceListing[]
+  transactions              Transaction[]
+  chatMessages              ChatMessage[]
+  groupMessages             GroupMessage[]
+  postComments              PostComment[]
+  postLikes                 PostLike[]
+  alumniApprovals           AlumniApproval[]
+  teacherApprovals          TeacherApproval[]
+  badges                    UserBadge[]
+  emailVerifications        EmailVerification[]
+  devices                   Device[]
+  researchOpportunities     ResearchOpportunity[] // Teachers publish research
+  researchApplications      ResearchApplication[] // Students apply
+  // Referral system
+  referralCode              String                @unique @default(uuid()) // Unique code for referring others
+  referredBy                String? // User ID who referred this user
+  referredByUser            User?                 @relation("UserReferrals", fields: [referredBy], references: [id])
+  referrals                 User[]                @relation("UserReferrals") // Users referred by this user
+  referralPoints            Int                   @default(0) // Points earned from referrals
 }
 
 model AlumniApproval {
@@ -299,17 +345,18 @@ model JobApplication {
 
 model MarketplaceListing {
   id           String   @id @default(uuid())
-  type         String // rent | sale
-  category     String // accommodation | electronics | books | furniture | other
+  type         String // rent | sale | opportunity | service
+  category     String // accommodation | flatmate_wanted | electronics | books | furniture | distribution | entrepreneurship | campus_opportunity | services | events | other
   title        String
   description  String
-  price        Float?
+  price        Float? // Optional - for opportunities/services, can be commission/stipend/fee
   location     String?
   universityId String?
   ownerId      String
   owner        User     @relation(fields: [ownerId], references: [id])
   images       Json?
   contactInfo  String?
+  metadata     Json? // Additional data: requirements, duration, compensation type, etc.
   isActive     Boolean  @default(true)
   isFeatured   Boolean  @default(false)
   createdAt    DateTime @default(now())
@@ -332,6 +379,27 @@ model Transaction {
 
   @@index([userId])
   @@index([status])
+}
+
+// Generic Badge System - Users can have multiple badges (teacher, engineer, doctor, chartered_accountant, etc.)
+model UserBadge {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  badgeType  String // "teacher", "engineer", "doctor", "chartered_accountant", "lawyer", "architect", etc.
+  verified   Boolean   @default(false) // Badge is verified by admin
+  verifiedAt DateTime? // When badge was verified
+  verifiedBy String? // Admin ID who verified (references User.id where role='admin' or 'super_admin')
+  documents  Json? // Verification documents (certificates, licenses, etc.)
+  metadata   Json? // Additional badge-specific data (e.g., specialization, years of experience)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([userId, badgeType]) // User can only have one badge of each type
+  @@index([userId])
+  @@index([badgeType])
+  @@index([verified])
+  @@index([badgeType, verified])
 }
 
 model Report {
@@ -429,21 +497,40 @@ model ResearchApplication {
 }
 
 model Settings {
-  id                            String   @id @default("platform")
-  enableCrossUniversityMatching Boolean  @default(false)
-  enableCrossUniversityResearch Boolean  @default(true)
-  enableMarketplace             Boolean  @default(true)
-  enableCareerFeatures          Boolean  @default(true)
-  enableResearchFeatures        Boolean  @default(true)
-  reportNotificationEmail       String?
+  id                             String   @id @default("platform")
+  enableCrossUniversityMatching  Boolean  @default(false)
+  enableCrossUniversityResearch  Boolean  @default(true)
+  enableMarketplace              Boolean  @default(true)
+  enableCareerFeatures           Boolean  @default(true)
+  enableResearchFeatures         Boolean  @default(true)
+  reportNotificationEmail        String?
   // Account type availability for onboarding
-  enableStudentRegistration     Boolean  @default(true)
-  enableAlumniRegistration      Boolean  @default(true)
-  enableTeacherRegistration     Boolean  @default(true)
+  enableStudentRegistration      Boolean  @default(true)
+  enableAlumniRegistration       Boolean  @default(true)
+  enableTeacherRegistration      Boolean  @default(true)
+  enableProfessionalRegistration Boolean  @default(true)
   // Note: Allowed countries are now managed via Country.active flag
   // Profile-wise feature flags
-  studentFeatures               Json? // { marketplace: boolean, career: boolean, crush: boolean, circles: boolean, feed: boolean, research: boolean }
-  alumniFeatures                Json? // { marketplace: boolean, career: boolean, circles: boolean, feed: boolean, research: boolean }
-  teacherFeatures               Json? // { marketplace: boolean, career: boolean, circles: boolean, feed: boolean, research: boolean }
-  updatedAt                     DateTime @default(now()) @updatedAt
+  studentFeatures                Json? // { marketplace: boolean, career: boolean, crush: boolean, circles: boolean, feed: boolean, research: boolean }
+  alumniFeatures                 Json? // { marketplace: boolean, career: boolean, circles: boolean, feed: boolean, research: boolean }
+  teacherFeatures                Json? // { marketplace: boolean, career: boolean, circles: boolean, feed: boolean, research: boolean }
+  professionalFeatures           Json? // { marketplace: boolean, career: boolean, circles: boolean, feed: boolean, research: boolean }
+  // Badge-wise spaces - each badge type gets its own space (community) where badge holders can connect
+  // e.g., { teacher: { enabled: true, name: "Research Space", accessType: "both" }, engineer: { enabled: true, name: "Engineering Space", accessType: "professional" } }
+  // accessType: "student" | "professional" | "both" - determines which profile types can access this space
+  badgeSpaces                    Json? // { [badgeType: string]: { enabled: boolean, name: string, description?: string, accessType: "student" | "professional" | "both" } }
+  // Referral system settings
+  enableReferralSystem           Boolean  @default(true)
+  referralPointsPerSignup        Int      @default(10) // Points awarded when referred user signs up
+  referralPointsPerVerification  Int      @default(20) // Points awarded when referred user verifies their account
+  referralPointsPerDomainMatch   Int      @default(5) // Bonus points if referred user is from same domain (university/organization)
+  // Age restrictions
+  minAgeStudent                  Int? // Minimum age for student registration (e.g., 16)
+  maxAgeStudent                  Int? // Maximum age for student registration (e.g., 35)
+  minAgeProfessional             Int? // Minimum age for professional registration (e.g., 18)
+  maxAgeProfessional             Int? // Maximum age for professional registration (e.g., 70)
+  // Terms and conditions
+  termsMessage                   String? // Message to show when user clicks terms checkbox
+  termsLink                      String? // URL where full terms and conditions are displayed
+  updatedAt                      DateTime @default(now()) @updatedAt
 }

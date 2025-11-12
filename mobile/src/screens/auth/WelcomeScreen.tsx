@@ -26,7 +26,7 @@ export default function WelcomeScreen() {
         />
       </View>
       <Text style={styles.title}>Welcome to UniCircle</Text>
-      <Text style={styles.subtitle}>Connect with students, alumni, teachers, and research opportunities</Text>
+      <Text style={styles.subtitle}>Connect with students, alumni, professionals, and research opportunities</Text>
       <TouchableOpacity
         style={styles.button}
         onPress={handleGetStarted}

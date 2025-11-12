@@ -42,26 +42,29 @@ export class UploadService {
   }
 
   /**
-   * Get user's country and university info for folder structure
+   * Get user's country and institution info for folder structure
+   * Handles both universities (for students) and organizations (for professionals)
    */
   private async getUserPathInfo(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
         universityId: true,
+        organizationId: true,
       },
     });
 
     let countryCode = 'unknown';
-    let universityId = 'unknown';
+    let institutionId = 'unknown';
 
+    // Check university first (for students)
     if (user?.universityId) {
       const university = await this.prisma.university.findUnique({
         where: { id: user.universityId },
       }) as any;
 
       if (university) {
-        universityId = university.id;
+        institutionId = university.id;
         
         if (university.countryId) {
           const country = await (this.prisma as any).country.findUnique({
@@ -73,11 +76,31 @@ export class UploadService {
           }
         }
       }
+    } 
+    // Check organization (for professionals)
+    else if (user?.organizationId) {
+      const organization = await (this.prisma as any).organization.findUnique({
+        where: { id: user.organizationId },
+      });
+
+      if (organization) {
+        institutionId = organization.id;
+        
+        if (organization.countryId) {
+          const country = await (this.prisma as any).country.findUnique({
+            where: { id: organization.countryId },
+          });
+          
+          if (country?.code) {
+            countryCode = country.code.toLowerCase();
+          }
+        }
+      }
     }
     
     return {
       countryCode: countryCode.replace(/[^a-z0-9]/g, '_'), // Sanitize for filesystem
-      universityId: universityId.replace(/[^a-z0-9-]/g, '_'), // Sanitize for filesystem
+      universityId: institutionId.replace(/[^a-z0-9-]/g, '_'), // Sanitize for filesystem (keeping name for backward compatibility)
       userId: userId.replace(/[^a-z0-9-]/g, '_'), // Sanitize for filesystem
     };
   }

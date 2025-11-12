@@ -26,7 +26,8 @@ export class MarketplaceService {
         ownerId: userId,
         images: dto.images || [],
         contactInfo: dto.contactInfo,
-      },
+        metadata: dto.metadata || null,
+      } as any,
       include: {
         owner: {
           select: {
@@ -145,8 +146,9 @@ export class MarketplaceService {
         location: dto.location,
         images: dto.images,
         contactInfo: dto.contactInfo,
+        metadata: dto.metadata,
         isActive: dto.isActive,
-      },
+      } as any,
     });
   }
 
