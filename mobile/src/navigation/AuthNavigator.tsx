@@ -16,9 +16,15 @@ import PinLoginScreen from '../screens/auth/PinLoginScreen';
 
 const Stack = createNativeStackNavigator();
 
-export default function AuthNavigator() {
+interface AuthNavigatorProps {
+  initialRouteName?: string;
+}
+
+export default function AuthNavigator({ initialRouteName = 'Welcome' }: AuthNavigatorProps = {}) {
+  console.log('[AUTH NAVIGATOR] Rendering with initialRouteName:', initialRouteName);
   return (
     <Stack.Navigator
+      initialRouteName={initialRouteName}
       screenOptions={{
         headerShown: true,
         headerStyle: {
@@ -32,17 +38,17 @@ export default function AuthNavigator() {
       }}
     >
       <Stack.Screen 
+        name="Welcome" 
+        component={WelcomeScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen 
         name="PinLogin" 
         component={PinLoginScreen}
         options={{ 
           title: 'Login',
           headerShown: true,
         }}
-      />
-      <Stack.Screen 
-        name="Welcome" 
-        component={WelcomeScreen}
-        options={{ headerShown: false }}
       />
       <Stack.Screen 
         name="ChooseType" 

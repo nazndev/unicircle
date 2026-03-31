@@ -16,6 +16,10 @@ export default function WelcomeScreen() {
     navigation.navigate('ChooseType' as never);
   };
 
+  useEffect(() => {
+    console.log('[WELCOME] Screen mounted');
+  }, []);
+
   return (
     <View style={styles.container}>
       <View style={styles.logoContainer}>
@@ -23,6 +27,12 @@ export default function WelcomeScreen() {
           source={require('../../../assets/icon.png')}
           style={styles.logo}
           resizeMode="contain"
+          onError={(error) => {
+            console.error('[WELCOME] Image load error:', error);
+          }}
+          onLoad={() => {
+            console.log('[WELCOME] Image loaded successfully');
+          }}
         />
       </View>
       <Text style={styles.title}>Welcome to UniCircle</Text>

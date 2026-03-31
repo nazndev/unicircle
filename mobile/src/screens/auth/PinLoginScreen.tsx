@@ -50,8 +50,14 @@ export default function PinLoginScreen() {
     try {
       await passwordLogin(email, password);
       // Navigation will be handled by App.tsx based on auth state
+      // Small delay to ensure state is updated
+      setTimeout(() => {
+        // App.tsx will handle navigation automatically
+      }, 100);
     } catch (error: any) {
-      Alert.alert('Login Failed', error.response?.data?.message || 'Invalid email or PIN. Please try again.');
+      // Error message is already user-friendly from authStore
+      const errorMessage = error.message || error.response?.data?.message || 'Invalid email or PIN. Please try again.';
+      Alert.alert('Login Failed', errorMessage);
     } finally {
       setLoading(false);
     }

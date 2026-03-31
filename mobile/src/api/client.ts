@@ -13,19 +13,29 @@ const MOBILE_API_KEY = Constants.expoConfig?.extra?.mobileApiKey || process.env.
 // For now, we'll use a placeholder - in production, implement proper secret management
 const MOBILE_API_SECRET = Constants.expoConfig?.extra?.mobileApiSecret || '';
 
+// Log warning if API key is missing (only in development)
+if (__DEV__ && !MOBILE_API_KEY) {
+  console.warn('[API CLIENT] ⚠️ MOBILE_API_KEY is not set. Mobile API endpoints will fail.');
+  console.warn('[API CLIENT] Set EXPO_PUBLIC_MOBILE_API_KEY in your .env file or app.config.js');
+}
+
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
+  timeout: 10000, // 10 second timeout for all requests
 });
 
 // Add token, API key, and request signature to requests
 apiClient.interceptors.request.use(
   async (config) => {
-    // Always add mobile API key for public endpoints
+    // Always add mobile API key for public endpoints (required for @MobileApi() endpoints)
     if (MOBILE_API_KEY) {
       config.headers['x-api-key'] = MOBILE_API_KEY;
+    } else if (__DEV__) {
+      // Only warn in development - in production, this should be set
+      console.warn('[API CLIENT] Request to', config.url, 'without API key - may fail if endpoint requires @MobileApi()');
     }
     
     // Add JWT token if available (for authenticated requests)
@@ -64,11 +74,18 @@ apiClient.interceptors.request.use(
   }
 );
 
-// Handle token refresh on 401
+// Handle token refresh on 401 and improve error messages
 apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
+    // Handle 401 Unauthorized - try to refresh token
     if (error.response?.status === 401) {
+      // Check if it's an API key error (don't try to refresh for that)
+      if (error.response?.data?.code === 'INVALID_API_KEY') {
+        console.error('[API CLIENT] Invalid API key. Check your MOBILE_API_KEY configuration.');
+        return Promise.reject(new Error('API configuration error. Please contact support.'));
+      }
+      
       // Try to refresh token
       const refreshToken = await SecureStore.getItemAsync('refreshToken');
       if (refreshToken) {
@@ -90,6 +107,22 @@ apiClient.interceptors.response.use(
       // If no refresh token or refresh failed, let the error propagate
       // but don't log it as an error - it's expected behavior
     }
+    
+    // Improve error messages for common cases
+    if (error.response?.data) {
+      const errorData = error.response.data;
+      // Use server-provided message if available
+      if (errorData.message) {
+        error.message = errorData.message;
+      }
+      // Handle specific error codes
+      if (errorData.code === 'INVALID_API_KEY') {
+        error.message = 'API configuration error. Please contact support.';
+      } else if (errorData.code === 'COUNTRY_INACTIVE') {
+        error.message = errorData.message || 'Your country has been deactivated. Please contact support.';
+      }
+    }
+    
     return Promise.reject(error);
   }
 );

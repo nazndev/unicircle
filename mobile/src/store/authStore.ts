@@ -100,7 +100,7 @@ interface AuthState {
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   isAuthenticated: false,
-  isLoading: true,
+  isLoading: true, // Start as true, will be set to false after checkAuth completes
   needsPinSetup: false,
   hasDeviceBinding: false,
   features: null,
@@ -139,13 +139,40 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         console.log('[AUTH STORE] Saved last email:', user.email);
       }
       
+      // Bind device on first login/registration (even if PIN not set yet)
+      // This ensures device is tracked from the start
+      try {
+        const Application = require('expo-application').default;
+        const Platform = require('react-native').Platform;
+        let deviceId: string | null = null;
+        if (Platform.OS === 'android') {
+          deviceId = Application.getAndroidId() || null;
+        } else {
+          deviceId = await Application.getIosIdForVendorAsync();
+        }
+        
+        if (deviceId) {
+          const deviceName = Platform.OS === 'ios' ? 'iOS Device' : 'Android Device';
+          await apiClient.post('/auth/bind-device', {
+            deviceId: deviceId,
+            deviceName,
+            platform: Platform.OS,
+          });
+          console.log('[AUTH STORE] Device bound on login');
+        }
+      } catch (deviceError: any) {
+        // Don't fail the flow if device binding fails - it's not critical
+        console.warn('[AUTH STORE] Device binding failed (non-critical):', deviceError.message);
+      }
+      
       // Set authentication state
       // If user doesn't have password, set needsPinSetup flag
       const needsPin = !hasPassword;
       set({ 
         user, 
         isAuthenticated: true,
-        needsPinSetup: needsPin 
+        needsPinSetup: needsPin,
+        hasDeviceBinding: hasPassword // Only set if password exists (device will be bound after PIN setup)
       });
       console.log('[AUTH STORE] Login successful, hasPassword:', hasPassword, 'needsPinSetup:', needsPin);
       
@@ -169,6 +196,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   passwordLogin: async (email: string, password: string) => {
     try {
       console.log('[AUTH STORE] Password login for:', email);
+      
+      // Validate inputs
+      if (!email || !email.includes('@')) {
+        throw new Error('Please enter a valid email address');
+      }
+      if (!password || password.length < 4) {
+        throw new Error('PIN must be at least 4 characters');
+      }
+      
       const response = await apiClient.post('/auth/password-login', { email, password });
       console.log('[AUTH STORE] Password login response received');
       
@@ -177,7 +213,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       
       if (!accessToken || !refreshToken) {
         console.error('[AUTH STORE] Missing tokens in response:', data);
-        throw new Error('Invalid response from server');
+        throw new Error('Invalid response from server. Please try again.');
+      }
+      
+      if (!user) {
+        console.error('[AUTH STORE] Missing user in response:', data);
+        throw new Error('Invalid response from server. Please try again.');
       }
       
       console.log('[AUTH STORE] Storing tokens and user data');
@@ -191,8 +232,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
       
       // Password login means user has password, so no PIN setup needed
-      set({ user, isAuthenticated: true, needsPinSetup: false });
-      console.log('[AUTH STORE] Password login successful');
+      // Verify device binding is still active
+      let deviceBound = true; // Assume bound if password login works
+      try {
+        const deviceCheck = await apiClient.get('/auth/check-device');
+        const deviceData = deviceCheck.data?.data || deviceCheck.data;
+        deviceBound = deviceData?.isBound || false;
+      } catch (error) {
+        console.warn('[AUTH STORE] Could not verify device binding after password login');
+      }
+      
+      set({ user, isAuthenticated: true, needsPinSetup: false, hasDeviceBinding: deviceBound });
+      console.log('[AUTH STORE] Password login successful, deviceBound:', deviceBound);
       
       // Load features after login
       try {
@@ -216,7 +267,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         throw new Error(errorData?.message || 'Your country has been deactivated');
       }
       
-      const errorMessage = error.response?.data?.message || error.message || 'Login failed';
+      // Check for API key error
+      if (errorData?.code === 'INVALID_API_KEY') {
+        throw new Error('API configuration error. Please contact support.');
+      }
+      
+      // Use error message from error object (already improved by interceptor)
+      const errorMessage = error.message || error.response?.data?.message || 'Login failed. Please check your email and PIN.';
       throw new Error(errorMessage);
     }
   },
@@ -247,9 +304,27 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   checkAuth: async () => {
     try {
       console.log('[AUTH STORE] Checking authentication...');
+      set({ isLoading: true }); // Ensure loading state is set
+      
+      // First, quickly check if token exists (no network call needed)
       const token = await SecureStore.getItemAsync('accessToken');
       console.log('[AUTH STORE] Token found:', !!token);
       
+      // If no token, immediately set loading to false and return
+      if (!token) {
+        console.log('[AUTH STORE] No token found - user not logged in');
+        set({ 
+          user: null, 
+          isAuthenticated: false, 
+          isLoading: false, 
+          needsPinSetup: false, 
+          hasDeviceBinding: false
+        });
+        console.log('[AUTH STORE] Auth check complete - no token');
+        return;
+      }
+      
+      // Only make network calls if token exists
       if (token) {
         try {
           console.log('[AUTH STORE] Validating token with /me endpoint...');
@@ -331,14 +406,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             set({ user: null, isAuthenticated: false, isLoading: false, needsPinSetup: false, hasDeviceBinding: false });
           }
         }
-      } else {
-        console.log('[AUTH STORE] No token found - user not logged in');
-        set({ user: null, isAuthenticated: false, isLoading: false, needsPinSetup: false, hasDeviceBinding: false });
       }
     } catch (error) {
       // Handle SecureStore errors
       console.error('[AUTH STORE] SecureStore error:', error);
       set({ user: null, isAuthenticated: false, isLoading: false, needsPinSetup: false, hasDeviceBinding: false });
+      console.log('[AUTH STORE] Auth check complete - error handled');
     }
   },
 

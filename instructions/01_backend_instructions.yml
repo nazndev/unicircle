@@ -3,10 +3,12 @@ name: UniCircle Backend Build
 description: >
   Build a production-grade NestJS + PostgreSQL backend for UniCircle — a
   campus-first social platform that evolves into a full alumni and professional network.
-  Supports email/OTP onboarding, university/domain validation, alumni manual
-  registration with document upload and admin approval, anonymous and cross-university
-  crush, match/chat, Circles, social posts, jobs, moderation, weekly reveal,
-  plus marketplace and monetization hooks.
+  Supports email/OTP onboarding with university/office domain validation, teacher badge registration,
+  professional onboarding with organization selection, alumni manual registration with document upload,
+  anonymous and cross-university crush, match/chat, Circles (programme, batch, alumni, professional),
+  social posts, jobs, research collaboration, marketplace with vendor integration, orders/checkout,
+  payments/payouts, referral system, badge management with spaces, moderation, weekly reveal,
+  and comprehensive monetization hooks.
 stack:
   runtime: nodejs
   framework: nestjs
@@ -83,7 +85,7 @@ tasks:
           secondary provider (e.g., Postmark or Mailgun) on delivery failure.
   
   - id: database-schema
-    title: Define Prisma schema with alumni onboarding, social, jobs, groups, and profileMode
+    title: Define Prisma schema with organizations, badges, spaces, vendors, research, orders, and comprehensive profile system
     steps:
       - edit_file: prisma/schema.prisma
         content: |
@@ -96,56 +98,115 @@ tasks:
             provider = "prisma-client-js"
           }
 
+          model Country {
+            id        String   @id @default(uuid())
+            name      String   @unique
+            code      String   @unique
+            currency  String   @default("BDT")
+            universities University[]
+            organizations Organization[]
+            createdAt DateTime @default(now())
+          }
+
           model University {
-            id        String  @id @default(uuid())
+            id        String   @id @default(uuid())
             name      String
-            domain    String? @unique
-            active    Boolean @default(true)
+            domain    String?  @unique
+            countryId String
+            country   Country  @relation(fields: [countryId], references: [id])
+            active    Boolean  @default(true)
             allowCrossCampus Boolean @default(false)
             users     User[]
+            researchOpportunities ResearchOpportunity[]
+            circles   Circle[]
+            createdAt DateTime @default(now())
+          }
+
+          model Organization {
+            id        String   @id @default(uuid())
+            name      String
+            domain    String?  @unique
+            countryId String
+            country   Country  @relation(fields: [countryId], references: [id])
+            type      String   // corporate | ngo | government | startup
+            active    Boolean  @default(true)
+            users     User[]
+            circles   Circle[]
             createdAt DateTime @default(now())
           }
 
           model User {
-            id                String   @id @default(uuid())
-            name              String?
-            email             String   @unique
-            passwordHash      String?
-            universityId      String?
-            university        University? @relation(fields: [universityId], references: [id])
-            department        String?
-            programme         String?
-            semester          String?
-            gender            String?
-            avatarUrl         String?
-            registrationSource String  @default("student_email") // student_email | alumni_manual
-            verificationStatus String  @default("pending")        // pending | approved | rejected
-            documents         Json?    // uploaded alumni proofs
-            isVerified        Boolean  @default(false)
-            isBlocked         Boolean  @default(false)
-            allowCrossCampus  Boolean  @default(false)
-            profileMode       String   @default("student") // student | alumni | professional
-            currentStatus     String?
-            headline          String?
-            experience        Json?
-            skills            Json?
-            createdAt         DateTime @default(now())
-            crushesSent       Crush[]  @relation("CrushSender")
-            crushesRecv       Crush[]  @relation("CrushReceiver")
-            matchesA          Match[]  @relation("MatchA")
-            matchesB          Match[]  @relation("MatchB")
-            reportsFiled      Report[] @relation("ReportBy")
-            reportsOn         Report[] @relation("ReportOn")
-            groupMembers      GroupMember[]
-            posts             Post[]
-            jobApplications   JobApplication[]
-            marketplaceListings MarketplaceListing[]
+            id                    String   @id @default(uuid())
+            name                  String?
+            email                 String   @unique
+            passwordHash          String?
+            universityId          String?
+            university            University? @relation(fields: [universityId], references: [id])
+            organizationId        String?
+            organization          Organization? @relation(fields: [organizationId], references: [id])
+            department            String?
+            programme             String?
+            semester_or_batch     String?
+            gender                String?
+            avatarUrl             String?
+            interests             Json?
+            registrationSource    String   @default("student_email") // student_email | professional_email | alumni_manual
+            verificationStatus   String   @default("pending")      // pending | approved | rejected
+            documents             Json?    // uploaded alumni proofs
+            isVerified            Boolean  @default(false)
+            isBlocked             Boolean  @default(false)
+            allowCrossCampus      Boolean  @default(false)
+            profileMode           String   @default("student")      // student | professional (frozen enum)
+            isAlumni              Boolean  @default(false)          // Badge/Status, not profile mode
+            alumniVerified        Boolean  @default(false)
+            isTeacher             Boolean  @default(false)           // Badge/Status, not profile mode
+            teacherVerified       Boolean  @default(false)
+            universityEmailVerified Boolean @default(false)
+            officeEmailVerified   Boolean  @default(false)
+            currentStatus         String?  // studying | looking_for_internship | looking_for_job | working | teaching
+            headline              String?
+            experience            Json?
+            skills                Json?
+            researchInterests     Json?
+            referredBy            String?  // referral code of referrer
+            referralCode          String   @unique
+            createdAt             DateTime @default(now())
+            crushesSent           Crush[]  @relation("CrushSender")
+            crushesRecv           Crush[]  @relation("CrushReceiver")
+            matchesA              Match[]  @relation("MatchA")
+            matchesB              Match[]  @relation("MatchB")
+            reportsFiled          Report[] @relation("ReportBy")
+            reportsOn             Report[] @relation("ReportOn")
+            circleMembers         CircleMember[]
+            posts                 Post[]
+            jobApplications       JobApplication[]
+            marketplaceListings   MarketplaceListing[]
+            badges                UserBadge[]
+            vendorsOwned          Vendor[] @relation("VendorOwner")
+            researchOpportunities ResearchOpportunity[]
+            researchApplications  ResearchApplication[]
+            orders                Order[]
+            referralPoints        ReferralPoint[]
+            createdAt             DateTime @default(now())
           }
 
           model AlumniApproval {
             id          String   @id @default(uuid())
             userId      String
             user        User     @relation(fields: [userId], references: [id])
+            documents   Json?
+            status      String   @default("pending") // pending | approved | rejected
+            reviewedBy  String?
+            reviewedAt  DateTime?
+            createdAt   DateTime @default(now())
+          }
+
+          model TeacherApproval {
+            id          String   @id @default(uuid())
+            userId      String
+            user        User     @relation(fields: [userId], references: [id])
+            universityId String
+            university  University @relation(fields: [universityId], references: [id])
             documents   Json?
             status      String   @default("pending") // pending | approved | rejected
             reviewedBy  String?
@@ -193,34 +254,39 @@ tasks:
             createdAt DateTime @default(now())
           }
 
-          model Group {
+          model Circle {
             id            String   @id @default(uuid())
             title         String
             description   String?
+            type          String   // programme_circle | batch_circle | interest_circle | alumni_circle | professional_circle
             universityId  String?
+            university    University? @relation(fields: [universityId], references: [id])
+            organizationId String?
+            organization  Organization? @relation(fields: [organizationId], references: [id])
             programme     String?
+            batch         String?
             visibility    String   @default("university") // university | programme | public
             createdById   String
             createdBy     User     @relation(fields: [createdById], references: [id])
             createdAt     DateTime @default(now())
-            members       GroupMember[]
-            messages      GroupMessage[]
+            members       CircleMember[]
+            messages      CircleMessage[]
           }
 
-          model GroupMember {
+          model CircleMember {
             id        String   @id @default(uuid())
-            groupId   String
-            group     Group    @relation(fields: [groupId], references: [id])
+            circleId  String
+            circle    Circle   @relation(fields: [circleId], references: [id])
             userId    String
             user      User     @relation(fields: [userId], references: [id])
             role      String   @default("member")
             joinedAt  DateTime @default(now())
           }
 
-          model GroupMessage {
+          model CircleMessage {
             id        String   @id @default(uuid())
-            groupId   String
-            group     Group    @relation(fields: [groupId], references: [id])
+            circleId  String
+            circle    Circle   @relation(fields: [circleId], references: [id])
             senderId  String
             sender    User     @relation(fields: [senderId], references: [id])
             content   String
@@ -285,28 +351,255 @@ tasks:
           }
 
           model MarketplaceListing {
-            id           String   @id @default(uuid())
-            type         String   // rent | sale
-            category     String   // accommodation | electronics | books | furniture | other
-            title        String
-            description  String
-            price        Float?
-            location     String?
-            universityId String?
-            ownerId      String
-            owner        User     @relation(fields: [ownerId], references: [id])
-            images       Json?
-            contactInfo  String?
-            isActive     Boolean  @default(true)
-            isFeatured   Boolean  @default(false)
-            createdAt    DateTime @default(now())
+            id              String   @id @default(uuid())
+            type            String   // rent | sale | opportunity | service
+            category        String   // accommodation | flatmate_wanted | electronics | books | furniture | distribution | entrepreneurship | campus_opportunity | services | events | local_business | promos | services_pro | other
+            title           String
+            description     String
+            price           Float?
+            location        String?
+            universityId    String?
+            ownerId         String
+            owner            User     @relation(fields: [ownerId], references: [id])
+            vendorId        String?
+            vendor           Vendor?  @relation(fields: [vendorId], references: [id])
+            vendorItemId    String?
+            vendorItem      VendorItem? @relation(fields: [vendorItemId], references: [id])
+            stockQty        Int?
+            schedule        String?   // opening hours for services
+            fulfillmentType String?   // pickup | delivery | service_booking | coupon
+            campusCoverage  Json?     // array of universityId
+            images          Json?
+            metadata        Json?     // Additional data: requirements, duration, compensation type, etc.
+            contactInfo     String?
+            isActive        Boolean   @default(true)
+            isFeatured      Boolean   @default(false)
+            createdAt       DateTime  @default(now())
+          }
+
+          model Vendor {
+            id              String   @id @default(uuid())
+            businessName    String
+            proprietorName  String
+            email           String
+            phone           String
+            ownerId         String
+            owner            User     @relation("VendorOwner", fields: [ownerId], references: [id])
+            status          String   @default("pending") // pending | approved | rejected | suspended
+            tradeLicenseOrNID String?
+            bankAccount     Json?    // bank or MFS account for payout
+            locations       VendorLocation[]
+            items           VendorItem[]
+            staff           VendorStaff[]
+            listings        MarketplaceListing[]
+            campaigns       VendorCampaign[]
+            orders          Order[]
+            payouts         Payout[]
+            createdAt       DateTime @default(now())
+            updatedAt       DateTime @updatedAt
+          }
+
+          model VendorApplication {
+            id              String   @id @default(uuid())
+            businessName    String
+            proprietorName  String
+            email           String
+            phone           String
+            applicantId     String
+            applicant       User     @relation(fields: [applicantId], references: [id])
+            status          String   @default("pending") // pending | approved | rejected
+            reviewedBy      String?
+            reviewedAt      DateTime?
+            createdAt       DateTime @default(now())
+          }
+
+          model VendorItem {
+            id              String   @id @default(uuid())
+            vendorId        String
+            vendor          Vendor   @relation(fields: [vendorId], references: [id])
+            title           String
+            description     String
+            category        String   // local_business | services_pro | promos
+            price           Float
+            stockQty        Int?
+            schedule        String?   // opening hours
+            fulfillmentType String   // pickup | delivery | service_booking | coupon
+            campusCoverage  Json     // array of universityId
+            images          Json?
+            isActive        Boolean  @default(true)
+            listings        MarketplaceListing[]
+            orderItems     OrderItem[]
+            createdAt       DateTime @default(now())
+            updatedAt       DateTime @updatedAt
+          }
+
+          model VendorLocation {
+            id        String   @id @default(uuid())
+            vendorId  String
+            vendor    Vendor   @relation(fields: [vendorId], references: [id])
+            address   String
+            latitude  Float?
+            longitude Float?
+            createdAt DateTime @default(now())
+          }
+
+          model VendorStaff {
+            id          String   @id @default(uuid())
+            vendorId    String
+            vendor      Vendor   @relation(fields: [vendorId], references: [id])
+            userId      String
+            user        User     @relation(fields: [userId], references: [id])
+            role        String   // manager | delivery | support | cashier
+            permissions Json     // { manageCatalog, manageOrders, viewAnalytics, manageCampaigns }
+            createdAt   DateTime @default(now())
+          }
+
+          model VendorCampaign {
+            id              String   @id @default(uuid())
+            vendorId        String
+            vendor          Vendor   @relation(fields: [vendorId], references: [id])
+            type            String   // featured | boosted
+            impressions     Int      @default(0)
+            impressionsGuarantee Int?
+            startDate       DateTime
+            endDate         DateTime
+            isActive        Boolean  @default(true)
+            createdAt       DateTime @default(now())
+          }
+
+          model Order {
+            id              String   @id @default(uuid())
+            buyerId         String
+            buyer            User     @relation(fields: [buyerId], references: [id])
+            vendorId        String
+            vendor           Vendor   @relation(fields: [vendorId], references: [id])
+            items            OrderItem[]
+            subtotal        Float
+            fees            Float    // platform fee
+            total           Float
+            currency        String   @default("BDT")
+            paymentMethod   String   // cod | mfs | card | prepaid_token
+            status          String   @default("created") // created | confirmed | fulfilled | cancelled | refunded
+            deliveryInfo    Json?    // address or pickup point
+            bookingSlot     String?  // ISO 8601 interval for service_booking
+            universityId    String?
+            createdAt       DateTime @default(now())
+            updatedAt       DateTime @updatedAt
+          }
+
+          model OrderItem {
+            id        String   @id @default(uuid())
+            orderId   String
+            order     Order    @relation(fields: [orderId], references: [id])
+            itemId    String
+            vendorItem VendorItem @relation(fields: [itemId], references: [id])
+            title     String
+            qty       Int
+            unitPrice Float
+          }
+
+          model Payout {
+            id              String   @id @default(uuid())
+            vendorId        String
+            vendor           Vendor   @relation(fields: [vendorId], references: [id])
+            periodStart     DateTime
+            periodEnd       DateTime
+            grossSales      Float
+            platformFees    Float
+            adjustments     Float    @default(0)
+            netPayable      Float
+            currency        String   @default("BDT")
+            status          String   @default("pending") // pending | processing | paid | failed
+            disbursedAt     DateTime?
+            referenceNumber String?
+            createdAt       DateTime @default(now())
+          }
+
+          model ResearchOpportunity {
+            id                String   @id @default(uuid())
+            title             String
+            description       String
+            researchArea      String   // AI, Biology, Economics, etc.
+            requirements      Json?    // skills, prerequisites
+            duration          String?  // "6 months", "1 year"
+            location          String?  // on-campus | remote | hybrid
+            compensation      String?  // stipend | credit | unpaid
+            teacherId         String
+            teacher            User     @relation(fields: [teacherId], references: [id])
+            universityId      String
+            university         University @relation(fields: [universityId], references: [id])
+            targetUniversities Json?    // array of universityId for cross-university
+            targetProgrammes   Json?    // array of programme names
+            maxApplicants     Int?
+            status            String   @default("open") // open | closed | filled
+            applications       ResearchApplication[]
+            createdAt         DateTime @default(now())
+            updatedAt         DateTime @updatedAt
+          }
+
+          model ResearchApplication {
+            id              String   @id @default(uuid())
+            opportunityId   String
+            opportunity     ResearchOpportunity @relation(fields: [opportunityId], references: [id])
+            applicantId     String
+            applicant        User     @relation(fields: [applicantId], references: [id])
+            coverLetter     String?
+            cvUrl           String?
+            transcriptUrl   String?
+            status          String   @default("submitted") // submitted | accepted | rejected
+            createdAt       DateTime @default(now())
+          }
+
+          model UserBadge {
+            id              String   @id @default(uuid())
+            userId          String
+            user            User     @relation(fields: [userId], references: [id])
+            badgeType       String   // teacher | engineer | doctor | researcher | intern | graduate_teacher
+            verified        Boolean  @default(false)
+            documents       Json?    // verification documents
+            createdAt       DateTime @default(now())
+            updatedAt       DateTime @updatedAt
+          }
+
+          model BadgeSpace {
+            id              String   @id @default(uuid())
+            badgeType       String   @unique
+            name            String   // "Research Space", "Engineering Space", etc.
+            description     String?
+            accessType      String   // student | professional | both
+            enabled         Boolean  @default(true)
+            createdAt       DateTime @default(now())
+            updatedAt       DateTime @updatedAt
+          }
+
+          model ReferralPoint {
+            id              String   @id @default(uuid())
+            userId          String
+            user            User     @relation(fields: [userId], references: [id])
+            points          Int
+            source          String   // signup | verification | domain_match
+            referredUserId  String?
+            createdAt       DateTime @default(now())
+          }
+
+          model Invoice {
+            id              String   @id @default(uuid())
+            userId          String
+            user            User     @relation(fields: [userId], references: [id])
+            context         String   // marketplace_feature | vendor_boost | job_posting | premium_badge
+            referenceId     String
+            amount          Float
+            currency        String   @default("BDT")
+            status          String   @default("pending") // pending | paid | failed | refunded
+            paidAt          DateTime?
+            createdAt       DateTime @default(now())
           }
 
           model Transaction {
             id        String   @id @default(uuid())
             userId    String
             user      User     @relation(fields: [userId], references: [id])
-            context   String   // marketplace | job | premium
+            context   String   // marketplace | job | premium | vendor
             reference String
             amount    Float
             status    String   @default("pending") // pending | paid | failed
@@ -336,34 +629,77 @@ tasks:
       - run: cd backend && npx prisma migrate dev --name init-schema
 
   - id: auth-module
-    title: Auth with domain validation, OTP, and alumni manual registration
+    title: Auth with domain validation, OTP, teacher badge, professional flow, and alumni manual registration
     steps:
-      - create modules: AuthModule, UsersModule, UniversityModule
+      - create modules: AuthModule, UsersModule, UniversityModule, OrganizationModule
       - implement:
-          - POST /auth/request-code  (for student_flow)
-          - POST /auth/verify-code   (for student_flow)
+          - POST /auth/request-code
+              - Accept Idempotency-Key header (24h TTL)
+              - Validate email domain against Country → University or Country → Organization mapping
+              - Send OTP via email
+          - POST /auth/verify-code
+              - Accept Idempotency-Key header
+              - Verify OTP and create/update user
+              - For university email: set universityEmailVerified=true, isVerified=true, verificationStatus=approved
+              - For office email: set officeEmailVerified=true, isVerified=true, verificationStatus=approved
+              - Issue JWT (access + refresh)
+          - POST /auth/teacher-register OR PUT /me/teacher-badge
+              - User selects "I'm a Teacher" during onboarding
+              - Requires university email verification
+              - Sets isTeacher=true, teacherVerified=true (if university email verified)
+              - Sets isAlumni=true if user has university affiliation
+              - Enables research features
           - POST /auth/alumni-register (for alumni_flow)
-              - accept name, personalEmail, universityId, documents[]
-              - store user with verificationStatus=pending
-              - create AlumniApproval record
+              - Accept name, personalEmail, universityId, documents[]
+              - Store user with verificationStatus=pending, isAlumni=false
+              - Create AlumniApproval record
+          - POST /auth/refresh
+          - DELETE /auth/logout
+      - admin endpoints:
           - GET /admin/alumni-requests
           - POST /admin/alumni-requests/:id/approve
-              - set user.isVerified=true, verificationStatus=approved
+              - Set user.isAlumni=true, alumniVerified=true, verificationStatus=approved
           - POST /admin/alumni-requests/:id/reject
-      - issue JWT (access + refresh)
+          - GET /admin/teacher-requests
+          - POST /admin/teacher-requests/:id/approve
+              - Set user.isTeacher=true, teacherVerified=true
+          - POST /admin/teacher-requests/:id/reject
+      - country-wise domain whitelisting:
+          - All university and organization domains must be mapped to Country
+          - Validate domain on request-code
       - block unverified/pending users from crush, groups, and posts
-      - send notifications on alumni approval
+      - send notifications on alumni/teacher approval
 
   - id: profile-transition
-    title: Student → Alumni → Professional profile mode
+    title: Profile mode transitions and badge management
     steps:
       - endpoint: PUT /me/profile-mode
-      - if profileMode=alumni and user.registrationSource='alumni_manual':
-          - set verificationStatus=pending
-          - create AlumniApproval
-      - if profileMode=professional:
-          - update without admin approval
-      - log change in AuditLog
+          - Supports transitions: student → professional
+          - Professional transition requires office email verification (organization domain)
+          - On transition: set profileMode=professional, organizationId, officeEmailVerified=true
+          - Automatically set isAlumni=true (student transitioning to professional = alumni)
+          - Preserve universityId (user remains alumni of original university)
+      - endpoint: PUT /me/teacher-badge
+          - Add teacher badge (isTeacher=true)
+          - Requires university email verification
+          - Sets teacherVerified=true if university email verified
+          - Automatically sets isAlumni=true if user has university affiliation
+          - Enables research features
+      - endpoint: PUT /me
+          - Update profile fields (name, headline, experience, skills, researchInterests, etc.)
+          - Update organizationId (requires new office email verification)
+          - Update universityId (requires new university email verification)
+      - endpoints: GET /me, GET /me/features, GET /me/roles
+          - GET /me: Returns full user profile
+          - GET /me/features: Returns profile features + available spaces based on verified badges
+          - GET /me/roles: Returns derived roles & badge-scoped permissions
+      - badge management endpoints:
+          - GET /badges/me - Get all badges for current user
+          - GET /badges/types - Get all available badge types
+          - POST /badges - Add a badge (unverified by default)
+          - PUT /badges/:id - Update badge documents/metadata (unverified badges only)
+          - DELETE /badges/:id - Remove badge (unverified badges only)
+      - log all changes in AuditLog
 
   - id: crush-and-match
     title: Anonymous + cross university crush
@@ -385,15 +721,27 @@ tasks:
       - validate participant
       - scheduled job to delete older than 7 days
 
-  - id: groups-module
-    title: Circles (programme, interest, alumni)
+  - id: circles-module
+    title: Circles (programme, batch, interest, alumni, professional)
     steps:
-      - POST /groups
-      - GET /groups
-      - POST /groups/:id/join
-      - GET /groups/:id/messages
-      - POST /groups/:id/messages
-      - alumni can join only after approval
+      - POST /circles
+      - GET /circles
+      - GET /circles/alumni - Get alumni circles for user's university (requires isAlumni=true)
+      - GET /circles/professional - Get professional circles for user's organization
+      - POST /circles/:id/join
+      - GET /circles/:id/messages
+      - POST /circles/:id/messages
+      - circle types:
+          - programme_circle: Auto-grouped by programme
+          - batch_circle: Auto-grouped by batch/semester
+          - interest_circle: User-created interest-based
+          - alumni_circle: Auto-created per university, users with isAlumni=true can discover and join
+          - professional_circle: Auto-created per organization, professionals can discover and join
+      - auto-grouping rules:
+          - Alumni: Users with isAlumni=true and universityId automatically grouped by university
+          - Professionals: Users with organizationId and profileMode=professional automatically grouped by organization
+          - Students: Automatically grouped by programme and batch
+          - Teachers: Users with isTeacher=true can join teacher circles and alumni circles (if isAlumni=true)
       - ensure visibility (university/programme/public)
 
   - id: social-module
@@ -409,13 +757,54 @@ tasks:
   - id: jobs-module
     title: Jobs and applications
     steps:
-      - POST /jobs (allowed: admin, professional, verified alumni)
-      - GET /jobs?programme=...
+      - POST /jobs (allowed: admin, users with isAlumni=true, teachers, professionals)
+      - GET /jobs?programme=...&universityId=...
       - POST /jobs/:id/apply
       - GET /jobs/applications/mine
+      - roles:
+          - student: view/apply
+          - users with isAlumni=true: view/apply/post (regardless of profileMode)
+          - teacher: view/apply/post
+          - professional: view/apply/post (if enabled in settings)
+
+  - id: research-module
+    title: Research collaboration
+    steps:
+      - POST /research (users with isTeacher=true only)
+      - GET /research?universityId=...&researchArea=...&status=open
+      - GET /research/:id
+      - PUT /research/:id (user with isTeacher=true who created it)
+      - DELETE /research/:id (user with isTeacher=true who created it)
+      - POST /research/:id/apply (students and users with isTeacher=true can apply)
+      - GET /research/applications (users with isTeacher=true can see their opportunities' applications)
+      - POST /research/applications/:id/accept (users with isTeacher=true only)
+      - POST /research/applications/:id/reject (users with isTeacher=true only)
+      - cross-university support:
+          - Teachers can publish opportunities open to students from other universities
+          - Students can filter by their university or "all universities"
+          - Admin can enable/disable cross-university research in settings
+      - moderation: Admin can review and deactivate suspicious research opportunities
+
+  - id: referral-module
+    title: Referral system
+    steps:
+      - Generate unique referral code for each user (format: first 3 letters of email + 6 random alphanumeric)
+      - Track referrals via referredBy field
+      - Endpoints:
+          - GET /referrals/me/code - Get my referral code
+          - GET /referrals/me/stats - Get referral statistics (total referrals, verified referrals, total points)
+      - Point system:
+          - signup_points: Points awarded when referred user signs up (default: 10)
+          - verification_points: Points awarded when referred user verifies account (default: 20)
+          - domain_match_bonus: Bonus points if referred user is from same domain (default: 5)
+      - Registration flow:
+          - User can optionally provide referral code during OTP verification
+          - Points automatically awarded when referred user signs up and verifies
+          - System checks if referrer and referred user share same university or organization domain
+      - Admin settings: enableReferralSystem, referralPointsPerSignup, referralPointsPerVerification, referralPointsPerDomainMatch
 
   - id: marketplace-module
-    title: Marketplace for accommodation and used items
+    title: Marketplace with vendor integration
     steps:
       - create module MarketplaceModule
       - endpoints:
@@ -425,25 +814,152 @@ tasks:
           - PUT /marketplace/:id
           - DELETE /marketplace/:id
           - POST /marketplace/:id/feature  # paid boost
+          - GET /marketplace/vendors?universityId=...  # vendor items
+          - GET /marketplace/items?vendorId=...  # vendor catalog items
+      - categories:
+          - accommodation, flatmate_wanted, electronics, books, furniture, distribution,
+            entrepreneurship, campus_opportunity, services, events, local_business, promos, services_pro, other
+      - vendor integration:
+          - If category in [local_business, promos, services_pro] => vendorId REQUIRED and vendorItemId REQUIRED
+          - Vendor items appear in marketplace with vendorId and campusCoverage
+      - validation:
+          - If fulfillmentType=coupon => stockQty nullable; else stockQty >= 0
+          - campusCoverage[] required for multi-campus vendor items
       - only verified users can post
       - reported listings go to moderators
       - auto-expire listings after 60 days (cron)
 
-  - id: payments-and-revenue
-    title: Monetization hooks
+  - id: vendor-portal-module
+    title: Vendor onboarding and management
+    steps:
+      - create module VendorModule
+      - onboarding:
+          - POST /vendors/apply - Self-service signup (business info, NID/trade license, phone, email)
+          - POST /vendors/upload-documents
+          - POST /vendors/verify-otp
+          - Admin review within 24h (vendor_verification_sla_hours)
+      - vendor management:
+          - PUT /vendors/:id - Manage profile
+          - POST/PUT /vendors/:id/locations - Manage locations
+          - POST/PUT /vendors/:id/items - Manage catalog (products, services, promos)
+          - POST /vendors/:id/campaigns - Run campaigns (featured, boosted)
+          - GET/POST /vendors/:id/inbox - Respond to student messages
+          - GET /vendors/:id/analytics
+          - POST/PUT /vendors/:id/staff - Manage staff members (future)
+      - campus targeting:
+          - POST /vendors/:id/targeting - Target one or more universityId
+          - Rules: vendors can only target enabled campuses, daily_campaign_cap_per_vendor: 3
+      - catalog rules:
+          - If fulfillmentType=coupon => price >= 0, stockQty optional, generates unique coupon codes on confirm
+          - If fulfillmentType=delivery => require delivery zone or fee table
+          - schedule supports weekly cron-like syntax e.g., MON-FRI 10:00-20:00
+      - admin endpoints:
+          - GET /admin/vendors
+          - POST /admin/vendors/:id/approve
+          - POST /admin/vendors/:id/reject
+          - POST /admin/vendors/:id/suspend
+
+  - id: orders-module
+    title: Orders and checkout
+    steps:
+      - create module OrdersModule
+      - endpoints:
+          - POST /orders - Create order (intent-based, vendor confirmation)
+          - GET /orders/:id
+          - POST /orders/:id/confirm - Vendor action
+          - POST /orders/:id/fulfill - Vendor action
+          - POST /orders/:id/cancel - Vendor or buyer within policy
+          - POST /orders/:id/refund - Admin or vendor if prepaid
+          - POST /orders/:id/dispute
+          - POST /orders/:id/dispute/resolve
+      - policies:
+          - cancellation_window_minutes: 10
+          - refund_policy_text: Vendor-set, CampusAdmin override allowed
+          - service_booking_support: true
+      - state machine:
+          - created → confirmed (by vendor)
+          - created → cancelled (by buyer, within 10 minutes)
+          - confirmed → fulfilled (by vendor)
+          - confirmed → cancelled (by vendor, reason required)
+          - confirmed → refunded (by admin|vendor, if prepaid)
+      - currency: Set from user's university.country.currency
+
+  - id: payments-module
+    title: Payments and payouts
     steps:
       - create module PaymentsModule
+      - payment modes: mfs (bKash, Nagad, Rocket), card, cash_on_delivery
+      - currency: Derived from Country.currency field
+      - fee model:
+          - platform_fee: default_percent configurable, per_category_override allowed
+          - fixed_fee_per_order: configurable
+          - free_tier: campus pilots can waive fees
+          - rounding: Apply banker's rounding to 2 dp after fee calculation
+      - webhooks:
+          - POST /webhooks/payments/gateway - Payment status updates
+          - POST /webhooks/payments/mfs - MFS gateway notifications
+          - Security: Verify HMAC signature header, replay protection via event_id + 24h cache
+      - payout flow:
+          - Compute settlement daily: cron "0 3 * * *" Asia/Dhaka
+          - POST /payouts/run
+          - POST /payouts/:id/disburse - To bank or MFS
+      - payout rules:
+          - min_payout_amount_usd: 20
+          - payout_cadence: weekly (can be overridden to daily in pilots)
+          - hold_period_days: 3 (fraud and refund buffer)
+      - compliance:
+          - Store VAT/TAX fields per sale if applicable
+          - GET /vendors/:id/statements?month=YYYY-MM - Downloadable statement
+
+  - id: billing-module
+    title: Billing and pricing
+    steps:
+      - create module BillingModule
+      - plans:
+          - marketplace_feature: price_usd: 5, duration_days: 7
+          - vendor_boost: price_usd: 20, impressions_guarantee: 5k
+          - job_posting_basic: price_usd: 15, duration_days: 30
+          - premium_badge_verification: price_usd: 2 (optional, campus can waive)
       - endpoints:
-          - POST /payments/create
-          - POST /payments/webhook
-      - contexts:
-          - marketplace_feature
-          - job_boost
-          - premium_subscription
-      - on success:
-          - update Transaction.status=paid
-          - set listing.isFeatured=true OR job.isFeatured=true
-          - log to AuditLog
+          - POST /billing/checkout - Creates invoice + payment intent
+          - GET /billing/invoices/me
+          - GET /billing/invoices/:id/pdf
+      - proration: If campaign stopped early by admin, refund unused days pro-rata to vendor wallet
+      - refunds: 24h no-impressions auto-refund; else manual review via /billing/tickets
+
+  - id: organization-management-module
+    title: Organization management (admin only)
+    steps:
+      - create module OrganizationModule
+      - endpoints:
+          - POST /admin/organizations - Create organization
+          - PUT /admin/organizations/:id - Update organization
+          - DELETE /admin/organizations/:id - Deactivate organization
+          - GET /admin/organizations - List organizations
+      - features:
+          - Map email domain → organization (country-wise whitelisting)
+          - Organization types: corporate, ngo, government, startup
+          - View professionals by organization
+          - Organization-level analytics
+
+  - id: badge-spaces-module
+    title: Badge spaces management
+    steps:
+      - create module BadgeSpacesModule
+      - concept: Badges enable Spaces - specialized communities where badge holders can connect
+      - admin endpoints:
+          - GET /admin/badge-spaces - List all badge spaces
+          - POST /admin/badge-spaces - Create badge space
+          - PUT /admin/badge-spaces/:id - Update badge space
+          - GET /admin/badge-spaces/:badgeType - Get space for badge type
+      - configuration:
+          - Each badge space can be enabled/disabled
+          - Space name is customizable (e.g., "Research Space", "Engineering Space")
+          - Space description is customizable
+          - Access type: "student" | "professional" | "both"
+      - user endpoints:
+          - GET /me/features - Returns spaces[] array based on verified badges
+          - Access rules: Users with verified badge get access if profile mode matches accessType
 
   - id: weekly-reveal
     title: Scheduled reveal of mutual crushes
@@ -453,32 +969,41 @@ tasks:
       - reveal pending reciprocal crushes
       - send email/push notifications
 
-  - id: sync-vendor-ecosystem
-    title: Integrate Vendor Ecosystem Across Core Modules
-    description: >
-      Extend backend logic to include vendor onboarding and linkage between student, professional,
-      and external vendors. Follow the updated 00_feature_map.yml definitions for:
-      - vendor_portal
-      - marketplace_extensions
-      - orders_and_checkout
-      - payments_and_payouts
-      - campus_partner_portal
-    actions:
-      - Ensure vendor_profile model supports vendorType (internal | external)
-      - Allow verified students and professionals to self-upgrade to vendor
-      - Link vendorId to userId when internal vendor is created
-      - Enable admin/vendor dashboards to display sales, campaigns, payouts
-      - Include vendor analytics in metrics_and_roi reporting
-      - Add vendor referral incentives per growth_incentives section
-    dependencies:
-      - marketplace
-      - revenue_model
-      - analytics_and_audit
-      - system_admin
-    output:
-      - REST endpoints for vendor, payouts, and ROI reporting
-      - Seed data for initial test vendors
-      - Role-based access controls for vendorOwner and campusAdmin
+  - id: campus-partner-portal-module
+    title: Campus partner portal
+    steps:
+      - create module CampusPartnerModule
+      - features:
+          - GET/POST /campus/:id/vendors - Vendor approvals
+          - GET/POST /campus/:id/promos - Promo calendar
+          - Configure spotlight slots in Feed
+          - GET /campus/:id/analytics
+          - GET /campus/:id/vendors/analytics - Aggregated campus vendor insights (GMV, active vendors, top categories, conversion rate)
+      - roles: CampusAdmin, Moderator
+      - guardrails:
+          - Campus branding controls: logos, color, code-of-conduct
+          - Safe listing policies: prohibited items list
+
+  - id: metrics-roi-module
+    title: Metrics and ROI reporting
+    steps:
+      - create module MetricsModule
+      - formulas:
+          - GMV = sum(orders where status in [confirmed, fulfilled, refunded]) at order.currency
+          - Take Rate = platformFees / GMV
+          - ARPU = revenue_in_period / active_users_in_period
+          - CAC = marketing_spend / new_verified_users
+      - endpoints:
+          - GET /admin/metrics/roi?window=quarter
+          - GET /admin/metrics/roi/csv
+          - GET /admin/metrics/roi/pdf
+      - metrics:
+          - acquisition: DAU, WAU, MAU, K-factor, CAC
+          - engagement: posts_per_user, matches_per_user, circle_joins
+          - marketplace: GMV, take_rate, paid_features, active_vendors, ARPU, vendor_conversion_rate
+          - jobs: postings_paid, applications
+          - research: opportunities_published, applications_submitted
+      - attribution: Track source for vendor and student signups, attribute revenue to campus, category, channel
 
   - id: swagger
     title: Generate OpenAPI
@@ -500,4 +1025,13 @@ tasks:
       - use class-validator on DTOs
       - restrict CORS to known origins
       - validate uploaded document types (jpg, png, pdf)
+      - country-wise domain whitelisting:
+          - All university and organization email domains must be verified and whitelisted
+          - Domains must be mapped to Country → University or Country → Organization
+          - Email verification badges: universityEmailVerified, officeEmailVerified
+      - rate limits:
+          - "/auth/request-code: 5/min per ip + 10/day per email"
+          - "/crush: N/day per user (configurable)"
+          - "/vendors/:id/campaigns: 3 active per vendor (enforced)"
       - log admin approvals in AuditLog
+      - idempotency: All POST /auth/* endpoints accept Idempotency-Key header (24h TTL)

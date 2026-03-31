@@ -492,6 +492,8 @@ features:
       - "If category in [local_business, promos, services_pro] => vendorId REQUIRED and vendorItemId REQUIRED"
       - "If fulfillmentType=coupon => stockQty nullable; else stockQty >= 0"
       - "campusCoverage[] required for multi-campus vendor items"
+    tags:
+      entrepreneurship: "Student and alumni-led startups, campus distributors, and service providers."
 
   moderation_and_reporting:
     user_actions:

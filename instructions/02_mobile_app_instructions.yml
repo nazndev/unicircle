@@ -3,11 +3,18 @@ name: UniCircle Mobile App Build
 description: >
   React Native (TypeScript) mobile app for Android/iOS that supports:
   - OTP login for students via university email
+  - Professional onboarding with organization/university selection
   - Alumni onboarding via document upload and manual approval
-  - Profile modes (student, alumni, professional)
+  - Profile modes (student | professional only - frozen enum)
+  - Teacher badge (isTeacher) - added AFTER student registration, not as separate account type
+  - Badge management (teacher, engineer, doctor, researcher, intern, etc.)
+  - Badge spaces (Research Space, Engineering Space, etc.)
   - Campus and cross-university crush & match
-  - Chat, Circles (programme and interest-based), Feed, Jobs
-  - Marketplace for accommodation and used items
+  - Chat, Circles (programme, batch, interest, alumni, professional), Feed, Jobs
+  - Research collaboration (teachers publish, students apply)
+  - Marketplace with vendor integration (accommodation, used items, vendor catalogs)
+  - Orders and checkout
+  - Referral system
   - Safety, moderation, and account deletion (store compliance)
 
 stack:
@@ -36,44 +43,75 @@ tasks:
       - set baseURL=https://api.unicircle.yourdomain.com
 
   - id: auth-flow
-    title: Student + Alumni onboarding
+    title: Student, Professional, and Alumni onboarding (Teacher badge added after registration)
     steps:
-      - Screens: Welcome, ChooseType, Email, OtpVerify, AlumniRegister, PendingApproval, ProfileSetup
+      - Screens: Welcome, ChooseType, Email, OtpVerify, ProfessionalOnboarding, AlumniRegister, PendingApproval, ProfileSetup
       - Flow:
-          1. Choose account type:
-              - Student → email/OTP flow
+          1. Welcome screen → Choose account type:
+              - Student → email/OTP flow (university email)
+              - Professional → email/OTP flow (office email OR university email)
               - Alumni → document upload flow
-          2. Student:
-              - POST /auth/request-code
+              - Note: Teacher is a BADGE, not an account type. Users add teacher badge after student registration or in profile settings.
+          2. Student flow:
+              - POST /auth/request-code (with university email)
               - POST /auth/verify-code → store tokens
-              - GET /me → profileMode, verificationStatus
-          3. Alumni:
+              - GET /me → profileMode=student, verificationStatus=approved, universityEmailVerified=true
+              - Optional: During onboarding, show "I'm a Teacher" option
+                  - If selected: POST /auth/teacher-register OR PUT /me/teacher-badge
+                  - Sets isTeacher=true, teacherVerified=true, profileMode=student (unchanged), research features enabled
+                  - User can also add teacher badge later in Profile → Badges section
+          3. Professional flow:
+              - POST /auth/request-code (with office email OR university email)
+              - POST /auth/verify-code → store tokens
+              - Navigate to ProfessionalOnboardingScreen
+              - User selects organization OR university from combined list
+              - PUT /me (updates universityId or organizationId, sets profileMode=professional)
+              - Continue to PIN setup and profile completion
+          5. Alumni flow:
+              - POST /auth/request-code (with personal email)
+              - POST /auth/verify-code → store tokens
               - POST /auth/alumni-register with { name, personalEmail, universityId, documents[] }
               - show PendingApproval screen
-              - poll GET /me every 6h until verificationStatus=approved
-          4. Store tokens in SecureStore
+              - poll GET /me every 6h until verificationStatus=approved, isAlumni=true
+          6. Referral code (optional):
+              - User can provide referral code during OTP verification
+              - Points automatically awarded when user signs up and verifies
+          7. Store tokens in SecureStore
       - install: npx expo install expo-secure-store
-      - UI note: alumni upload must show preview + delete
+      - UI notes:
+          - Welcome/ChooseType screen should ONLY show: Student, Professional, Alumni (NOT Teacher as separate option)
+          - Teacher badge is added AFTER student registration (optional during onboarding or later in Profile → Badges)
+          - alumni upload must show preview + delete
+          - professional onboarding must show combined list of organizations and universities
+          - teacher badge selection should be clear that it's a badge, not a profile mode - it can be combined with student or professional profile
 
   - id: main-navigation
-    title: Tabs and stacks (mode-aware)
+    title: Tabs and stacks (mode-aware with badge spaces)
     steps:
-      - Tabs (based on profileMode and verificationStatus):
+      - Tabs (based on profileMode, badges, and verificationStatus):
           - Student (approved):
               - Home, Crush, Circles, Feed, Marketplace, Messages, Profile
-          - Alumni (approved):
-              - Home, Circles, Feed, Jobs, Marketplace, Messages, Profile
-          - Professional:
+              - If isTeacher=true: Add "Research" tab (Research Space)
+          - Professional (approved):
               - Home, Network (alias of Circles/People), Feed, Jobs, Marketplace, Messages, Profile
+              - If isTeacher=true: Add "Research" tab (Research Space)
+              - If has verified badges: Show badge spaces in navigation or dedicated section
       - Home:
           - welcome text
           - weekly reveal countdown
-          - show “Verification pending” if verificationStatus != approved
+          - show "Verification pending" if verificationStatus != approved
+          - show available badge spaces (if user has verified badges)
+      - Badge Spaces:
+          - GET /me/features → returns spaces[] array
+          - Each verified badge grants access to its space (if profile mode matches accessType)
+          - Examples: Research Space (isTeacher=true), Engineering Space (engineer badge), etc.
       - Marketplace:
           - list view pulling GET /marketplace
-          - filters: category (accommodation, used_items, books, other)
+          - filters: category (accommodation, flatmate_wanted, electronics, books, furniture, distribution, entrepreneurship, campus_opportunity, services, events, local_business, promos, services_pro, other)
+          - vendor items: GET /marketplace/vendors?universityId=...
           - view listing → GET /marketplace/:id
-          - “Post listing” → POST /marketplace (only if approved)
+          - "Post listing" → POST /marketplace (only if approved)
+          - vendor catalog items: GET /marketplace/items?vendorId=...
       - Messages:
           - GET /match/mine
           - open chat → GET/POST /chat/:matchId
@@ -88,12 +126,21 @@ tasks:
       - Disable crush UI if verificationStatus != approved
 
   - id: circles-module
-    title: Programme, batch, and alumni Circles
+    title: Programme, batch, interest, alumni, and professional Circles
     steps:
       - List circles → GET /circles
+      - Get alumni circles → GET /circles/alumni (requires isAlumni=true)
+      - Get professional circles → GET /circles/professional (for user's organization)
       - Join → POST /circles/:id/join
       - Circle chat → GET/POST /circles/:id/messages
-      - Alumni (approved) can join alumni circles
+      - Circle types:
+          - programme_circle: Auto-grouped by programme
+          - batch_circle: Auto-grouped by batch/semester
+          - interest_circle: User-created interest-based
+          - alumni_circle: Auto-created per university, users with isAlumni=true can discover and join
+          - professional_circle: Auto-created per organization, professionals can discover and join
+      - Users with isAlumni=true can access alumni circles regardless of profileMode
+      - Professionals (profileMode=professional) can access professional circles for their organization
 
   - id: feed-module
     title: Social feed
@@ -108,62 +155,191 @@ tasks:
   - id: jobs-module
     title: Jobs and applications
     steps:
-      - GET /jobs?programme=CSE
+      - GET /jobs?programme=CSE&universityId=...
       - View job details
       - Apply → POST /jobs/:id/apply
-      - If profileMode=professional or approved alumni → show “Post a job” → POST /jobs
+      - Post a job (if user has isAlumni=true OR isTeacher=true OR profileMode=professional):
+          - POST /jobs
+      - Roles:
+          - student: view/apply
+          - users with isAlumni=true: view/apply/post (regardless of profileMode)
+          - teacher: view/apply/post
+          - professional: view/apply/post (if enabled in settings)
+
+  - id: research-module
+    title: Research collaboration
+    steps:
+      - Screens: ResearchList, ResearchDetails, ResearchApplication, ResearchApplicationsList
+      - Browse research opportunities:
+          - GET /research?universityId=...&researchArea=...&status=open
+          - Filter by university or "all universities" (cross-university)
+      - View opportunity details:
+          - GET /research/:id
+      - Apply to opportunity:
+          - POST /research/:id/apply (students and users with isTeacher=true can apply)
+          - Include cover letter, CV/resume, transcript (optional)
+      - For teachers (isTeacher=true):
+          - POST /research - Publish research opportunity
+          - GET /research/applications - See applications for their opportunities
+          - POST /research/applications/:id/accept - Accept application
+          - POST /research/applications/:id/reject - Reject application
+          - PUT /research/:id - Update opportunity
+          - DELETE /research/:id - Delete opportunity
+
+  - id: referral-module
+    title: Referral system
+    steps:
+      - Screens: ReferralCode, ReferralStats
+      - Get referral code:
+          - GET /referrals/me/code
+          - Display unique referral code (format: first 3 letters of email + 6 random alphanumeric)
+      - Get referral statistics:
+          - GET /referrals/me/stats
+          - Show: total referrals, verified referrals, total points
+      - During registration:
+          - User can optionally provide referral code during OTP verification
+          - Points automatically awarded when referred user signs up and verifies
+      - UI: Show referral code prominently in Profile screen, allow sharing
+
+  - id: badge-management-module
+    title: Badge management
+    steps:
+      - Screens: BadgesList, AddBadge, BadgeDetails
+      - Get user badges:
+          - GET /badges/me
+          - Display all badges (verified and unverified)
+      - Get available badge types:
+          - GET /badges/types
+          - Show: teacher, engineer, doctor, researcher, intern, graduate_teacher, etc.
+      - Add badge:
+          - POST /badges
+          - Upload verification documents
+          - Badge starts as unverified
+      - Update badge (unverified badges only):
+          - PUT /badges/:id
+          - Update documents/metadata
+      - Remove badge (unverified badges only):
+          - DELETE /badges/:id
+      - Badge spaces:
+          - GET /me/features → returns spaces[] array
+          - Show available spaces based on verified badges
+          - Navigate to badge space (e.g., Research Space, Engineering Space)
 
   - id: marketplace-module
-    title: Accommodation & used items marketplace
+    title: Marketplace with vendor integration
     steps:
-      - Screens: MarketplaceList, MarketplaceFilters, MarketplaceDetails, MarketplaceCreate
+      - Screens: MarketplaceList, MarketplaceFilters, MarketplaceDetails, MarketplaceCreate, VendorCatalog
       - Browse:
           - GET /marketplace
           - query params:
-              - category=accommodation|electronics|books|furniture|other
-              - universityId=current user’s university
-          - show image, title, price/rent, location, createdAt
+              - category=accommodation|flatmate_wanted|electronics|books|furniture|distribution|entrepreneurship|campus_opportunity|services|events|local_business|promos|services_pro|other
+              - universityId=current user's university
+          - show image, title, price/rent, location, createdAt, vendor badge (if vendor item)
+      - Vendor items:
+          - GET /marketplace/vendors?universityId=... - List vendors for campus
+          - GET /marketplace/items?vendorId=... - Get vendor catalog items
+          - Show vendor items with fulfillmentType (pickup, delivery, service_booking, coupon)
       - Create listing:
           - only if verificationStatus=approved
           - POST /marketplace with:
-              - type: "rent" | "sale"
+              - type: "rent" | "sale" | "opportunity" | "service"
               - category
               - title, description
               - price (optional)
               - location
               - images[]
+              - vendorId, vendorItemId (if category in [local_business, promos, services_pro])
+              - stockQty, schedule, fulfillmentType, campusCoverage (for vendor items)
           - upload images via multipart
       - Report listing:
           - POST /report with contextType="marketplace" and contextId=listingId
-      - (optional if backend enabled) Feature listing:
+      - Feature listing:
           - POST /marketplace/:id/feature
-          - show “Featured” tag
+          - show "Featured" tag
+
+  - id: orders-module
+    title: Orders and checkout
+    steps:
+      - Screens: OrderList, OrderDetails, Checkout, OrderTracking
+      - Create order:
+          - POST /orders
+          - For vendor items: Include vendorId, items[], deliveryInfo, bookingSlot (if service_booking)
+          - Payment method: cod | mfs | card | prepaid_token
+      - View orders:
+          - GET /orders/:id
+          - Show order status: created | confirmed | fulfilled | cancelled | refunded
+      - Order actions:
+          - POST /orders/:id/cancel - Cancel order (within 10 minutes for buyer)
+          - Track order status updates
+      - For vendors:
+          - POST /orders/:id/confirm - Confirm order
+          - POST /orders/:id/fulfill - Mark as fulfilled
 
   - id: profile-and-modes
-    title: Profile screen and mode switching
+    title: Profile screen, mode switching, and badge management
     steps:
       - show:
-          - name, email, university, programme, avatar
+          - name, email, university, organization, programme, avatar
           - verificationStatus badge (pending/approved)
-      - section “Profile Type”:
-          - Student
-          - Alumni (if selected and user had student email → no docs)
-          - Alumni (manual) → open upload modal → PUT /me/profile-mode
+          - profileMode badge (student | professional)
+          - Badge badges: isAlumni, isTeacher, universityEmailVerified, officeEmailVerified
+          - User badges: GET /badges/me (teacher, engineer, doctor, researcher, intern, etc.)
+          - Available spaces: GET /me/features → spaces[] array
+      - section "Profile Type" (frozen enum: student | professional):
+          - Student (current)
           - Professional → PUT /me/profile-mode
-      - add “Delete my account” → DELETE /me
-      - add “Allow cross-campus” toggle → PUT /me
+              - Requires office email verification (organization domain)
+              - Automatically sets isAlumni=true (student transitioning to professional = alumni)
+              - Preserves universityId
+      - section "Badges":
+          - Add Teacher Badge → PUT /me/teacher-badge
+              - Requires university email verification
+              - Sets isTeacher=true, teacherVerified=true
+              - Enables research features
+          - Manage Badges → Navigate to BadgesList screen
+              - Add badge: POST /badges
+              - Update badge: PUT /badges/:id (unverified only)
+              - Remove badge: DELETE /badges/:id (unverified only)
+      - section "Badge Spaces":
+          - Show available spaces based on verified badges
+          - Navigate to space (e.g., Research Space, Engineering Space)
+      - section "Referral":
+          - Show referral code: GET /referrals/me/code
+          - Show referral stats: GET /referrals/me/stats
+          - Allow sharing referral code
+      - add "Delete my account" → DELETE /me
+      - add "Allow cross-campus" toggle → PUT /me
+      - update profile fields: PUT /me (name, headline, experience, skills, researchInterests, etc.)
 
   - id: notifications
     title: App notifications
     steps:
       - use expo-notifications
       - handle:
+          - account_verified
           - alumni_account_approved
-          - match_created
+          - teacher_account_approved
+          - new_match
           - weekly_reveal
-          - new_job_post
-          - marketplace_interest (future)
+          - circle_announcement
+          - job_posting_matched
+          - marketplace_listing_interested
+          - research_opportunity_published
+          - research_application_submitted
+          - research_application_accepted
+          - research_application_rejected
+          - referral_signup (when someone signs up using your referral code)
+          - referral_verified (when someone you referred verifies their account)
+          - vendor_application_received
+          - vendor_approved
+          - vendor_rejected
+          - order_created
+          - order_confirmed
+          - order_fulfilled
+          - order_cancelled
+          - payout_processed
       - simple Notifications screen to list recent events
+      - User-level opt-in for email categories (critical events bypass opt-out)
 
   - id: safety-and-report
     title: Reporting and moderation

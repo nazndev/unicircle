@@ -987,8 +987,16 @@ export class AuthService {
   }
 
   async passwordLogin(email: string, password: string) {
+    // Validate inputs
+    if (!email || !email.includes('@')) {
+      throw new BadRequestException('Invalid email address');
+    }
+    if (!password || password.length < 4) {
+      throw new BadRequestException('Password must be at least 4 characters');
+    }
+
     const user = await this.prisma.user.findUnique({
-      where: { email },
+      where: { email: email.toLowerCase().trim() },
       include: {
         university: {
           include: {
@@ -998,12 +1006,10 @@ export class AuthService {
       } as any,
     }) as any;
 
-    if (!user) {
+    // Don't reveal if user exists or not (security best practice)
+    // Use same error message for both cases
+    if (!user || !user.passwordHash) {
       throw new UnauthorizedException('Invalid credentials');
-    }
-
-    if (!user.passwordHash) {
-      throw new BadRequestException('Password not set. Please use OTP login to set your password first.');
     }
 
     if (!user.isVerified) {
@@ -1025,6 +1031,8 @@ export class AuthService {
 
     const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
     if (!isPasswordValid) {
+      // Log failed login attempt (for security monitoring)
+      console.warn(`[AUTH] Failed password login attempt for email: ${email}`);
       throw new UnauthorizedException('Invalid credentials');
     }
 
