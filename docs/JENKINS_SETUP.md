@@ -34,6 +34,7 @@ Deployment, SSH, and Docker production deploy are **out of scope** for this pipe
 ### Jenkins controller and agents
 
 - **Node.js**: **20.x** on the agent (matches `.github/workflows/backend-ci.yml` and `mobile-build.yml`).
+- **Java**: **17** for local Android/Gradle work. Newer JDKs such as 24 can break the Expo SDK 50 / Gradle 8.3 toolchain.
 - **npm**: Bundled with Node.
 - **Git**: For SCM checkout.
 - **Network**: Agents need outbound HTTPS for `npm ci`, Prisma, Expo, and EAS cloud builds.
@@ -165,10 +166,11 @@ EAS expects a valid **Expo access token** in the environment for CI-style runs. 
 1. **Credential IDs are fixed** in the `Jenkinsfile` (`unicircle-*`). Rename in Jenkins and in the file if you use a different convention.
 2. **`expo-doctor`** is non-blocking in this pipeline version. It still reports config/dependency issues in logs, but Jenkins continues to the Android EAS build so test artifacts are not blocked by known Expo warnings.
 3. **EAS project configuration**: if the Android build fails with `EAS project not configured`, run `eas init` once locally for this project (with your Expo account and `slug`), and push any necessary config changes before re-running Jenkins.
-4. **Admin lint** is non-blocking in this pipeline version. This is intentional while existing admin lint violations are being remediated incrementally.
-5. **No EAS artifact download** — only logs are archived locally.
-6. **Node version** is not enforced inside the `Jenkinsfile` (no `nvm`/`fnm` block); use a Node 20 agent label or tool installer.
-7. **Backend tests** use `--passWithNoTests` because the repo may not yet contain `*.spec.ts` files; when tests exist, they will run normally.
+4. **Android build image**: `mobile/eas.json` pins the production Android profile to `sdk-50` so EAS uses the matching Java 17 / NDK toolchain for this Expo SDK 50 project.
+5. **Admin lint** is non-blocking in this pipeline version. This is intentional while existing admin lint violations are being remediated incrementally.
+6. **No EAS artifact download** — only logs are archived locally.
+7. **Node version** is not enforced inside the `Jenkinsfile` (no `nvm`/`fnm` block); use a Node 20 agent label or tool installer.
+8. **Backend tests** use `--passWithNoTests` because the repo may not yet contain `*.spec.ts` files; when tests exist, they will run normally.
 
 ---
 
