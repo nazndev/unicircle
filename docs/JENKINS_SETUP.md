@@ -20,7 +20,7 @@ Deployment, SSH, and Docker production deploy are **out of scope** for this pipe
 | **Backend: build** | Runs `npm run build` (`nest build`). |
 | **Backend: test** | Runs `npm run test` with Jest; `--passWithNoTests` avoids failure when no `*.spec.ts` files exist yet. |
 | **Mobile: install** | Installs mobile dependencies with `npm ci --legacy-peer-deps` under `mobile/` (current lockfile/peer setup requires this in CI). |
-| **Mobile: preflight** | Verifies Expo/EAS CLIs, TypeScript (`npx tsc --noEmit`), and `expo-doctor` before spending time on EAS. |
+| **Mobile: preflight** | Verifies Expo/EAS CLIs and TypeScript (`npx tsc --noEmit`). `expo-doctor` is run as an advisory health check and logged, but it does not block Android test builds in this first Jenkins version. |
 | **Mobile: EAS Android (production)** | Cloud Android build via `npx eas-cli build --platform android --profile production --non-interactive` (see `mobile/eas.json`). Exports `EXPO_PUBLIC_*` for `app.config.js`. **No Gradle `assembleRelease`**. |
 | **post / archiveArtifacts** | Saves EAS log and timestamp under `artifacts/` for the build record (binary stays on Expo unless you add a download step later). |
 
@@ -157,7 +157,7 @@ EAS expects a valid **Expo access token** in the environment for CI-style runs. 
 ## Current limitations
 
 1. **Credential IDs are fixed** in the `Jenkinsfile` (`unicircle-*`). Rename in Jenkins and in the file if you use a different convention.
-2. **`expo-doctor`** may exit non-zero on warnings in some environments; if it blocks CI unnecessarily, relax that step (e.g. document a forked `Jenkinsfile` or add a parameter to skip).
+2. **`expo-doctor`** is non-blocking in this pipeline version. It still reports config/dependency issues in logs, but Jenkins continues to the Android EAS build so test artifacts are not blocked by known Expo warnings.
 3. **No EAS artifact download** — only logs are archived locally.
 4. **Node version** is not enforced inside the `Jenkinsfile` (no `nvm`/`fnm` block); use a Node 20 agent label or tool installer.
 5. **Backend tests** use `--passWithNoTests` because the repo may not yet contain `*.spec.ts` files; when tests exist, they will run normally.
