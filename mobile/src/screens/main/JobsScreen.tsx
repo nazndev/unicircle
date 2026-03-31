@@ -23,7 +23,7 @@ export default function JobsScreen() {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Jobs</Text>
-      {(user?.isAlumni || user?.profileMode === 'teacher' || user?.verificationStatus === 'approved') && (
+      {(user?.isAlumni || user?.isTeacher || user?.verificationStatus === 'approved') && (
         <TouchableOpacity style={styles.postButton}>
           <Text style={styles.postButtonText}>Post a Job</Text>
         </TouchableOpacity>

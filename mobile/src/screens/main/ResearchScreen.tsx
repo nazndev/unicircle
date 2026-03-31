@@ -63,7 +63,7 @@ export default function ResearchScreen() {
   const renderOpportunity = ({ item }: { item: ResearchOpportunity }) => (
     <TouchableOpacity
       style={styles.opportunityCard}
-      onPress={() => navigation.navigate('ResearchDetail' as never, { opportunityId: item.id } as never)}
+      onPress={() => (navigation as any).navigate('ResearchDetail', { opportunityId: item.id })}
     >
       <View style={styles.cardHeader}>
         <Text style={styles.opportunityTitle}>{item.title}</Text>

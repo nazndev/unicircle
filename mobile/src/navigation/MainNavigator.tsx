@@ -135,8 +135,8 @@ export default function MainNavigator() {
         <Tab.Screen name="Feed" component={FeedScreen} />
       )}
       
-      {/* Research - for students/teachers and if enabled */}
-      {(user?.profileMode === 'student' || user?.profileMode === 'teacher') && features?.research && (
+      {/* Research - for students and teacher badge holders, if enabled */}
+      {(user?.profileMode === 'student' || user?.isTeacher) && features?.research && (
         <Tab.Screen name="Research" component={ResearchScreen} />
       )}
       
