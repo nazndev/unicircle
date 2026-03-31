@@ -20,15 +20,14 @@ import {
   DollarOutlined,
   ShoppingOutlined,
   FileTextOutlined,
-  TrendingUpOutlined,
+  RiseOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import dayjs from 'dayjs';
 
-const { Title } = Typography;
-const { RangePicker } = DatePicker;
+const { Title, Text } = Typography;
 const { Option } = Select;
 
 interface InvoiceData {
@@ -226,7 +225,7 @@ export default function BillingPage() {
               <Statistic
                 title="ARPU"
                 value={analytics?.arpu || 0}
-                prefix={<TrendingUpOutlined />}
+                prefix={<RiseOutlined />}
                 precision={2}
               />
             </Card>
@@ -239,7 +238,7 @@ export default function BillingPage() {
               <Statistic
                 title="CAC"
                 value={analytics?.cac || 0}
-                prefix={<TrendingUpOutlined />}
+                prefix={<RiseOutlined />}
                 precision={2}
               />
             </Card>
