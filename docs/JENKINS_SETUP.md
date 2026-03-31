@@ -19,6 +19,9 @@ Deployment, SSH, and Docker production deploy are **out of scope** for this pipe
 | **Backend: Prisma validate** | Runs `npx prisma validate` against `backend/prisma/schema.prisma` (aligned with `.github/workflows/backend-ci.yml`). |
 | **Backend: build** | Runs `npm run build` (`nest build`). |
 | **Backend: test** | Runs `npm run test` with Jest; `--passWithNoTests` avoids failure when no `*.spec.ts` files exist yet. |
+| **Admin: install** | Installs admin dependencies with `npm ci` under `admin/`. |
+| **Admin: lint** | Runs `npm run lint` for the Next.js admin app. |
+| **Admin: build** | Runs `npm run build` for the Next.js admin app. |
 | **Mobile: install** | Installs mobile dependencies with `npm ci --legacy-peer-deps` under `mobile/` (current lockfile/peer setup requires this in CI). |
 | **Mobile: preflight** | Verifies Expo/EAS CLIs and TypeScript (`npx tsc --noEmit`). `expo-doctor` is run as an advisory health check and logged, but it does not block Android test builds in this first Jenkins version. |
 | **Mobile: EAS Android (production)** | Cloud Android build via `npx eas-cli build --platform android --profile production --non-interactive` (see `mobile/eas.json`). Exports `EXPO_PUBLIC_*` for `app.config.js`. **No Gradle `assembleRelease`**. |
@@ -142,8 +145,11 @@ EAS expects a valid **Expo access token** in the environment for CI-style runs. 
 | Prisma validate | `npx prisma validate` (same as `.github/workflows/backend-ci.yml`) |
 | Backend build | `npm run build` |
 | Backend test | `npm run test` with `--passWithNoTests` so empty test suites do not fail CI |
+| Admin install | `admin/package.json` → `npm ci` |
+| Admin lint | `npm run lint` |
+| Admin build | `npm run build` |
 | Mobile install | `mobile/package.json` deps with `npm ci --legacy-peer-deps` |
-| Preflight | `npx expo --version`, `npx eas-cli --version`, `npx tsc --noEmit`, `npx expo-doctor` |
+| Preflight | `npx expo --version`, `npx eas-cli --version`, `npx tsc --noEmit`, `npx expo-doctor` (non-blocking) |
 | Android build | `mobile/eas.json` profile `production` (Android `buildType: apk`), `npx eas-cli build --platform android --profile production --non-interactive` |
 
 **Not included** in this `Jenkinsfile`:
@@ -158,9 +164,10 @@ EAS expects a valid **Expo access token** in the environment for CI-style runs. 
 
 1. **Credential IDs are fixed** in the `Jenkinsfile` (`unicircle-*`). Rename in Jenkins and in the file if you use a different convention.
 2. **`expo-doctor`** is non-blocking in this pipeline version. It still reports config/dependency issues in logs, but Jenkins continues to the Android EAS build so test artifacts are not blocked by known Expo warnings.
-3. **No EAS artifact download** — only logs are archived locally.
-4. **Node version** is not enforced inside the `Jenkinsfile` (no `nvm`/`fnm` block); use a Node 20 agent label or tool installer.
-5. **Backend tests** use `--passWithNoTests` because the repo may not yet contain `*.spec.ts` files; when tests exist, they will run normally.
+3. **EAS project configuration**: if the Android build fails with `EAS project not configured`, run `eas init` once locally for this project (with your Expo account and `slug`), and push any necessary config changes before re-running Jenkins.
+4. **No EAS artifact download** — only logs are archived locally.
+5. **Node version** is not enforced inside the `Jenkinsfile` (no `nvm`/`fnm` block); use a Node 20 agent label or tool installer.
+6. **Backend tests** use `--passWithNoTests` because the repo may not yet contain `*.spec.ts` files; when tests exist, they will run normally.
 
 ---
 

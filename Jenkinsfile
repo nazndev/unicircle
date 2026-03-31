@@ -71,6 +71,33 @@ pipeline {
       }
     }
 
+    stage('Admin: install') {
+      steps {
+        dir('admin') {
+          sh '''
+            set -e
+            npm ci
+          '''
+        }
+      }
+    }
+
+    stage('Admin: lint') {
+      steps {
+        dir('admin') {
+          sh 'npm run lint'
+        }
+      }
+    }
+
+    stage('Admin: build') {
+      steps {
+        dir('admin') {
+          sh 'npm run build'
+        }
+      }
+    }
+
     stage('Mobile: install') {
       steps {
         dir('mobile') {
@@ -109,7 +136,13 @@ pipeline {
             # EXPO_TOKEN: headless Expo / EAS (from Jenkins credentials)
             # Do not echo token; Jenkins masks credential-backed env vars in logs when configured.
             set -o pipefail
-            npx eas-cli build --platform android --profile production --non-interactive 2>&1 | tee "${WORKSPACE}/artifacts/eas-android-build.log"
+            if ! npx eas-cli build --platform android --profile production --non-interactive 2>&1 | tee "${WORKSPACE}/artifacts/eas-android-build.log"; then
+              echo ""
+              echo "EAS Android build failed."
+              echo "If the error is 'EAS project not configured', run 'eas init' once locally for this project"
+              echo "and link it to your Expo account, then commit any necessary config before re-running Jenkins."
+              exit 1
+            fi
             echo "EAS cloud build finished. Full log: artifacts/eas-android-build.log — binary is on Expo (not archived locally unless using local builds)."
             date -u > "${WORKSPACE}/artifacts/build-timestamp.txt" || true
           '''
