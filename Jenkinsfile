@@ -1,4 +1,4 @@
-// UniCircle — Jenkins pipeline (backend + mobile EAS Android)
+// UniCircle — Jenkins pipeline (backend + mobile EAS Android/iOS)
 // Create Jenkins credentials with the IDs below (see docs/JENKINS_SETUP.md). Do not commit secrets.
 
 pipeline {
@@ -123,7 +123,7 @@ pipeline {
             npx eas-cli --version
             npx tsc --noEmit
             if ! npx expo-doctor; then
-              echo "expo-doctor reported project warnings; continuing so EAS Android test builds can still run."
+              echo "expo-doctor reported project warnings; continuing so EAS mobile test builds can still run."
             fi
           '''
         }
@@ -149,6 +149,31 @@ pipeline {
               exit 1
             fi
             echo "EAS cloud build finished. Full log: artifacts/eas-android-build.log — binary is on Expo (not archived locally unless using local builds)."
+            date -u > "${WORKSPACE}/artifacts/build-timestamp.txt" || true
+          '''
+        }
+      }
+    }
+
+    stage('Mobile: EAS iOS (production)') {
+      steps {
+        dir('mobile') {
+          sh '''
+            set -e
+            mkdir -p "${WORKSPACE}/artifacts"
+            export EXPO_PUBLIC_API_BASE_URL="${EXPO_PUBLIC_API_BASE_URL}"
+            export EXPO_PUBLIC_MOBILE_API_KEY="${EXPO_PUBLIC_MOBILE_API_KEY}"
+            # EXPO_TOKEN: headless Expo / EAS (from Jenkins credentials)
+            # iOS signing is expected to be managed in Expo credentials for this project.
+            set -o pipefail
+            if ! npx eas-cli build --platform ios --profile production --non-interactive 2>&1 | tee "${WORKSPACE}/artifacts/eas-ios-build.log"; then
+              echo ""
+              echo "EAS iOS build failed."
+              echo "Make sure the Expo project already has valid iOS credentials configured for remote builds."
+              echo "If the error is about Apple credentials or signing, configure them once with EAS for this project before re-running Jenkins."
+              exit 1
+            fi
+            echo "EAS cloud build finished. Full log: artifacts/eas-ios-build.log — binary is on Expo (not archived locally unless using local builds)."
             date -u > "${WORKSPACE}/artifacts/build-timestamp.txt" || true
           '''
         }

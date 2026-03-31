@@ -11,6 +11,9 @@
       "distribution": "internal"
     },
     "production": {
+      "ios": {
+        "image": "sdk-50"
+      },
       "android": {
         "buildType": "apk",
         "image": "sdk-50"

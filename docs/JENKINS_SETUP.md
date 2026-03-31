@@ -3,7 +3,7 @@
 This document describes how to run the root `Jenkinsfile` for this repository. It matches the existing build model:
 
 - **Backend**: `npm ci`, `npm run prisma:generate`, `npx prisma validate`, `npm run build`, `npm run test` (see `backend/package.json`).
-- **Mobile**: `npm ci --legacy-peer-deps`, Expo/EAS preflight, `npx eas-cli build --platform android --profile production --non-interactive` (same EAS flow as `.github/workflows/mobile-build.yml`, without raw Gradle release builds).
+- **Mobile**: `npm ci --legacy-peer-deps`, Expo/EAS preflight, `npx eas-cli build --platform android --profile production --non-interactive`, and `npx eas-cli build --platform ios --profile production --non-interactive` (same EAS flow as `.github/workflows/mobile-build.yml`, without raw Gradle/Xcode release builds).
 
 Deployment, SSH, and Docker production deploy are **out of scope** for this pipeline version.
 
@@ -23,9 +23,10 @@ Deployment, SSH, and Docker production deploy are **out of scope** for this pipe
 | **Admin: lint** | Runs `npm run lint` for the Next.js admin app as an advisory check (non-blocking in this first Jenkins version due to existing baseline lint debt). |
 | **Admin: build** | Runs `npm run build` for the Next.js admin app. |
 | **Mobile: install** | Installs mobile dependencies with `npm ci --legacy-peer-deps` under `mobile/` (current lockfile/peer setup requires this in CI). |
-| **Mobile: preflight** | Verifies Expo/EAS CLIs and TypeScript (`npx tsc --noEmit`). `expo-doctor` is run as an advisory health check and logged, but it does not block Android test builds in this first Jenkins version. |
+| **Mobile: preflight** | Verifies Expo/EAS CLIs and TypeScript (`npx tsc --noEmit`). `expo-doctor` is run as an advisory health check and logged, but it does not block mobile test builds in this pipeline version. |
 | **Mobile: EAS Android (production)** | Cloud Android build via `npx eas-cli build --platform android --profile production --non-interactive` (see `mobile/eas.json`). Exports `EXPO_PUBLIC_*` for `app.config.js`. **No Gradle `assembleRelease`**. |
-| **post / archiveArtifacts** | Saves EAS log and timestamp under `artifacts/` for the build record (binary stays on Expo unless you add a download step later). |
+| **Mobile: EAS iOS (production)** | Cloud iOS build via `npx eas-cli build --platform ios --profile production --non-interactive` (see `mobile/eas.json`). Exports `EXPO_PUBLIC_*` for `app.config.js`. **No local Xcode archive/sign step in Jenkins**. |
+| **post / archiveArtifacts** | Saves EAS logs and timestamp under `artifacts/` for the build record (binaries stay on Expo unless you add a download step later). |
 
 ---
 
@@ -64,7 +65,7 @@ Create **Secret text** credentials in Jenkins (**Manage Jenkins → Credentials*
 | `unicircle-database-url` | PostgreSQL connection string | Backend tests / any runtime that reads `DATABASE_URL` |
 | `unicircle-jwt-secret` | JWT signing secret | Backend tests / app config |
 | `unicircle-cors-origin` | Allowed CORS origin(s) | Backend |
-| `unicircle-expo-token` | Expo access token for non-interactive EAS | `eas build` (see [Expo CI](https://docs.expo.dev/build-reference/triggers-ci/)) |
+| `unicircle-expo-token` | Expo access token for non-interactive EAS | Android and iOS `eas build` (see [Expo CI](https://docs.expo.dev/build-reference/triggers-ci/)) |
 | `unicircle-expo-public-api-base-url` | Public API base URL | Baked into app via `mobile/app.config.js` → `extra.apiBaseUrl` |
 | `unicircle-expo-public-mobile-api-key` | Mobile API key (public client key) | `mobile/app.config.js` → `extra.mobileApiKey` |
 
@@ -77,6 +78,16 @@ Create **Secret text** credentials in Jenkins (**Manage Jenkins → Credentials*
 ### Expo token (`EXPO_TOKEN`)
 
 EAS expects a valid **Expo access token** in the environment for CI-style runs. Create a token from your Expo account and store it as `unicircle-expo-token` (Secret text). The pipeline relies on the environment variable `EXPO_TOKEN` being set automatically from that credential (Expo CLI reads `EXPO_TOKEN`).
+
+### iOS signing and Apple credentials
+
+The Jenkins pipeline does **not** store raw Apple passwords, App Store Connect keys, or provisioning profiles by default. For this first version, iOS signing is expected to be managed by **Expo/EAS remote credentials** for the linked project.
+
+Before running the iOS stage in Jenkins:
+
+- Ensure the Expo project already has valid iOS credentials configured.
+- Confirm the Expo account referenced by `EXPO_TOKEN` has permission to access and use those credentials.
+- If EAS prompts for first-time Apple credential setup, complete that once outside Jenkins and then re-run the pipeline.
 
 ---
 
@@ -111,6 +122,7 @@ EAS expects a valid **Expo access token** in the environment for CI-style runs. 
    - **Script Path**: `Jenkinsfile` (repository root).
 3. Save the job.
 4. Create the six **Secret text** credentials in Jenkins with the exact IDs in the table above (or edit the `Jenkinsfile` `environment { }` block and this doc to use your own IDs consistently).
+5. For iOS builds, verify Expo/EAS already has working remote Apple credentials for this project before enabling or relying on the iOS stage.
 
 ---
 
@@ -125,12 +137,14 @@ EAS expects a valid **Expo access token** in the environment for CI-style runs. 
 - [ ] Agent has **Node.js 20** and **npm** on `PATH`.
 - [ ] All six credentials exist and IDs match `Jenkinsfile`.
 - [ ] Expo account has access to the project/slug in `mobile/app.config.js` (`slug: "unicircle"`) and `EXPO_TOKEN` is valid.
+- [ ] Expo/EAS already has valid remote iOS signing credentials for this project if you expect the iOS stage to pass.
 
 ### Expected outputs
 
-- **Console log**: Timestamped stages; backend install → Prisma generate → validate → build → test → mobile install → preflight → EAS Android build.
+- **Console log**: Timestamped stages; backend install → Prisma generate → validate → build → test → mobile install → preflight → EAS Android build → EAS iOS build.
 - **Archived artifacts** (if stages complete):
   - `artifacts/eas-android-build.log` — full EAS CLI output for the Android production build.
+  - `artifacts/eas-ios-build.log` — full EAS CLI output for the iOS production build.
   - `artifacts/build-timestamp.txt` — UTC time when the EAS stage finished writing the log.
 
 **Note:** EAS **cloud** builds produce the APK/AAB on Expo’s servers. This pipeline does **not** download the binary artifact unless you add a follow-up step (e.g. `eas build:download` or Expo web dashboard). The log file is the primary local artifact.
@@ -152,11 +166,11 @@ EAS expects a valid **Expo access token** in the environment for CI-style runs. 
 | Mobile install | `mobile/package.json` deps with `npm ci --legacy-peer-deps` |
 | Preflight | `npx expo --version`, `npx eas-cli --version`, `npx tsc --noEmit`, `npx expo-doctor` (non-blocking) |
 | Android build | `mobile/eas.json` profile `production` (Android `buildType: apk`), `npx eas-cli build --platform android --profile production --non-interactive` |
+| iOS build | `mobile/eas.json` profile `production`, `npx eas-cli build --platform ios --profile production --non-interactive` |
 
 **Not included** in this `Jenkinsfile`:
 
 - **Admin** (`admin/`): no `npm run build` for `admin` yet—add a stage when you want Jenkins to validate the Next.js app.
-- **iOS EAS build**: omitted in v1 (GitHub `mobile-build.yml` builds both platforms; this pipeline is Android-only for a smaller first step).
 - **Deployment**: no SSH, no Docker stack deploy.
 
 ---
@@ -164,21 +178,22 @@ EAS expects a valid **Expo access token** in the environment for CI-style runs. 
 ## Current limitations
 
 1. **Credential IDs are fixed** in the `Jenkinsfile` (`unicircle-*`). Rename in Jenkins and in the file if you use a different convention.
-2. **`expo-doctor`** is non-blocking in this pipeline version. It still reports config/dependency issues in logs, but Jenkins continues to the Android EAS build so test artifacts are not blocked by known Expo warnings.
+2. **`expo-doctor`** is non-blocking in this pipeline version. It still reports config/dependency issues in logs, but Jenkins continues to the EAS mobile builds so test artifacts are not blocked by known Expo warnings.
 3. **EAS project configuration**: if the Android build fails with `EAS project not configured`, run `eas init` once locally for this project (with your Expo account and `slug`), and push any necessary config changes before re-running Jenkins.
 4. **Android build image**: `mobile/eas.json` pins the production Android profile to `sdk-50` so EAS uses the matching Java 17 / NDK toolchain for this Expo SDK 50 project.
-5. **Admin lint** is non-blocking in this pipeline version. This is intentional while existing admin lint violations are being remediated incrementally.
-6. **No EAS artifact download** — only logs are archived locally.
-7. **Node version** is not enforced inside the `Jenkinsfile` (no `nvm`/`fnm` block); use a Node 20 agent label or tool installer.
-8. **Backend tests** use `--passWithNoTests` because the repo may not yet contain `*.spec.ts` files; when tests exist, they will run normally.
+5. **iOS credentials are not managed by Jenkins** in this version. The iOS stage depends on Expo/EAS remote Apple credentials already being configured for the project.
+6. **Admin lint** is non-blocking in this pipeline version. This is intentional while existing admin lint violations are being remediated incrementally.
+7. **No EAS artifact download** — only logs are archived locally.
+8. **Node version** is not enforced inside the `Jenkinsfile` (no `nvm`/`fnm` block); use a Node 20 agent label or tool installer.
+9. **Backend tests** use `--passWithNoTests` because the repo may not yet contain `*.spec.ts` files; when tests exist, they will run normally.
 
 ---
 
 ## Future improvements
 
 - Add **admin** stage: `cd admin && npm ci && npm run lint && npm run build`.
-- Add **iOS** EAS stage: `npx eas-cli build --platform ios --profile production --non-interactive` (requires Apple credentials / Expo credentials).
 - Add **optional** `eas build:download` or API polling to archive **APK/AAB** to Jenkins.
+- Add **optional** `eas build:download` or API polling to archive **IPA** to Jenkins.
 - Pin **Node** via Jenkins `tools { nodejs 'node20' }` or a Docker agent `node:20`.
 - Run **parallel** backend and mobile on separate agents if queue time is an issue.
 - Add **PR** triggers and status checks mirroring GitHub Actions.
@@ -196,6 +211,7 @@ cd backend && npm ci && npm run prisma:generate && npx prisma validate && npm ru
 # Mobile (EAS needs EXPO_TOKEN and project login)
 cd mobile && npm ci --legacy-peer-deps && npx tsc --noEmit && npx expo-doctor
 cd mobile && npx eas-cli build --platform android --profile production --non-interactive
+cd mobile && npx eas-cli build --platform ios --profile production --non-interactive
 ```
 
 Set `EXPO_PUBLIC_API_BASE_URL` and `EXPO_PUBLIC_MOBILE_API_KEY` in the shell before EAS build to mirror Jenkins.
