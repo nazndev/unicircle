@@ -5,6 +5,7 @@ module.exports = {
   expo: {
     name: "UniCircle",
     slug: "unicircle",
+    owner: "nazndev",
     version: "1.0.0",
     orientation: "portrait",
     icon: "./assets/icon.png",
@@ -51,6 +52,10 @@ module.exports = {
       apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL || "http://localhost:3000/api",
       // API key from environment variable - NEVER commit this to git
       mobileApiKey: process.env.EXPO_PUBLIC_MOBILE_API_KEY || "",
+      eas: {
+        // Linked to EAS project @nazndev/unicircle
+        projectId: "052ff968-d707-4caa-9f6a-bd446188f24d",
+      },
     }
   }
 };

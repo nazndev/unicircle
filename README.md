@@ -26,13 +26,6 @@ The platform is designed to meet **Google Play** and **App Store** compliance, w
 ```
 unicircle/
 │
-├── instructions/
-│   ├── 00_feature_map.yml
-│   ├── 01_backend_instructions.yml
-│   ├── 02_mobile_app_instructions.yml
-│   ├── 03_deployment_ci_cd_instructions.yml
-│   └── 04_store_and_security_overrides.yml
-│
 ├── backend/
 │   ├── src/
 │   ├── prisma/
