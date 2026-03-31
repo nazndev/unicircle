@@ -20,7 +20,7 @@ Deployment, SSH, and Docker production deploy are **out of scope** for this pipe
 | **Backend: build** | Runs `npm run build` (`nest build`). |
 | **Backend: test** | Runs `npm run test` with Jest; `--passWithNoTests` avoids failure when no `*.spec.ts` files exist yet. |
 | **Admin: install** | Installs admin dependencies with `npm ci` under `admin/`. |
-| **Admin: lint** | Runs `npm run lint` for the Next.js admin app. |
+| **Admin: lint** | Runs `npm run lint` for the Next.js admin app as an advisory check (non-blocking in this first Jenkins version due to existing baseline lint debt). |
 | **Admin: build** | Runs `npm run build` for the Next.js admin app. |
 | **Mobile: install** | Installs mobile dependencies with `npm ci --legacy-peer-deps` under `mobile/` (current lockfile/peer setup requires this in CI). |
 | **Mobile: preflight** | Verifies Expo/EAS CLIs and TypeScript (`npx tsc --noEmit`). `expo-doctor` is run as an advisory health check and logged, but it does not block Android test builds in this first Jenkins version. |
@@ -165,9 +165,10 @@ EAS expects a valid **Expo access token** in the environment for CI-style runs. 
 1. **Credential IDs are fixed** in the `Jenkinsfile` (`unicircle-*`). Rename in Jenkins and in the file if you use a different convention.
 2. **`expo-doctor`** is non-blocking in this pipeline version. It still reports config/dependency issues in logs, but Jenkins continues to the Android EAS build so test artifacts are not blocked by known Expo warnings.
 3. **EAS project configuration**: if the Android build fails with `EAS project not configured`, run `eas init` once locally for this project (with your Expo account and `slug`), and push any necessary config changes before re-running Jenkins.
-4. **No EAS artifact download** — only logs are archived locally.
-5. **Node version** is not enforced inside the `Jenkinsfile` (no `nvm`/`fnm` block); use a Node 20 agent label or tool installer.
-6. **Backend tests** use `--passWithNoTests` because the repo may not yet contain `*.spec.ts` files; when tests exist, they will run normally.
+4. **Admin lint** is non-blocking in this pipeline version. This is intentional while existing admin lint violations are being remediated incrementally.
+5. **No EAS artifact download** — only logs are archived locally.
+6. **Node version** is not enforced inside the `Jenkinsfile` (no `nvm`/`fnm` block); use a Node 20 agent label or tool installer.
+7. **Backend tests** use `--passWithNoTests` because the repo may not yet contain `*.spec.ts` files; when tests exist, they will run normally.
 
 ---
 
